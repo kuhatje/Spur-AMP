@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useIsVisible } from "../../JS_Scripts/Visible";
 import Model_Preview from "../../JS_Scripts/Model";
+import { HouseToGLBConverter } from "../../JS_Scripts/HouseToGLB";
 
 // Component types matching the tkinter implementation
 enum ComponentType {
@@ -64,10 +65,12 @@ export default function Builder() {
   
   // 3D Model Preview state
   const [selectedModel, setSelectedModel] = useState("house1");
+  const [customModel, setCustomModel] = useState<any>(null);
+  const [glbConverter] = useState(() => new HouseToGLBConverter());
   const models = {
     house1: { name: "Modern Home", path: "/models/house1/scene.gltf" },
     subhouse: { name: "Suburban", path: "/models/subhouse.glb" },
-    donut: { name: "Experimental", path: "/models/donut.glb" },
+    donut: { name: "Custom Design", path: "/models/donut.glb" },
   };
   
   const gridSize = 40;
@@ -725,6 +728,34 @@ export default function Builder() {
     URL.revokeObjectURL(url);
     setStatusMessage("Manufacturing data exported");
   };
+
+  const generateCustomModel = async () => {
+    try {
+      setStatusMessage("Generating 3D model...");
+      const scene = glbConverter.convertHouseToScene(house);
+      setCustomModel(scene);
+      setSelectedModel("donut"); // Switch to the custom model tab
+      setStatusMessage("3D model generated successfully! View it in the 'Custom Design' tab below.");
+    } catch (error) {
+      console.error('Error generating custom model:', error);
+      setStatusMessage("Error generating 3D model. Please try again.");
+    }
+  };
+
+  const downloadCustomModel = async () => {
+    if (customModel) {
+      try {
+        setStatusMessage("Preparing download...");
+        await glbConverter.downloadGLB(house, 'my-custom-house.glb');
+        setStatusMessage("Custom model downloaded as GLB file");
+      } catch (error) {
+        console.error('Download error:', error);
+        setStatusMessage("Error downloading model. Please try again.");
+      }
+    } else {
+      setStatusMessage("Please generate a custom model first");
+    }
+  };
   
   // Update views when house changes
   useEffect(() => {
@@ -861,6 +892,29 @@ export default function Builder() {
                 </button>
               </div>
             </div>
+
+            {/* 3D Model Generation */}
+            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
+              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">3D Model</h3>
+              <div className="space-y-2">
+                <button 
+                  onClick={generateCustomModel}
+                  className="w-full bg-green-600 text-white px-2 md:px-3 py-2 rounded hover:bg-green-700 text-xs md:text-sm"
+                >
+                  Generate 3D Model
+                </button>
+                <button 
+                  onClick={downloadCustomModel}
+                  className="w-full bg-teal-600 text-white px-2 md:px-3 py-2 rounded hover:bg-teal-700 text-xs md:text-sm"
+                  disabled={!customModel}
+                >
+                  Download GLB
+                </button>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                Generate a 3D model from your design and view it in the preview below
+              </p>
+            </div>
           </div>
 
           {/* 2D Grid View - Responsive canvas */}
@@ -932,7 +986,10 @@ export default function Builder() {
               </div>
 
               <div className="h-48 sm:h-64 md:h-[300px] lg:h-[400px] xl:h-[450px]">
-                <Model_Preview loc={models[selectedModel].path} />
+                <Model_Preview 
+                  loc={models[selectedModel].path} 
+                  customScene={selectedModel === "donut" ? customModel : null}
+                />
               </div>
             </div>
 
