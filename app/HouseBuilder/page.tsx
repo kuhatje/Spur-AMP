@@ -6,8 +6,10 @@ import HeaderMobile from "../components/HeaderMobile";
 import HeroSection from "./components/HeroSection";
 import Video from "./components/Video";
 import Builder from "./components/Builder";
+import ComponentLibrary from "./components/ComponentLibrary";
 import Soon from "./components/ComingSoon";
 import Footer from "../components/Footer";
+import { InventoryProvider } from "./context/InventoryContext";
 
 export default function HouseBuilder() {
   return (
@@ -22,7 +24,10 @@ export default function HouseBuilder() {
       {/* Current Development */}
 
       <Video />
-      <Builder />
+      <InventoryProvider>
+        <Builder />
+        <ComponentLibrary />
+      </InventoryProvider>
 
       <Footer />
     </>

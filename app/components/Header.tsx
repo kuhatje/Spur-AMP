@@ -27,20 +27,20 @@ export default function Header() {
       {/* Brand */}
       <div className="text-2xl font-bold text-[#0474BC]">
         <a href="/" className="hover:text-[#110C27]">
-          House Builder
+          Daylun Builder 3D
         </a>
       </div>
 
-      {/* Center: House Builder Link */}
+      {/* Center: Daylun Builder 3D Link */}
       <nav className="flex gap-6 text-sm md:font-semibold tracking-wide text-center">
-        <a href="/HouseBuilder" className="hover:text-[#110C27] text-lg font-bold">
-          BUILDER TOOL
+        <a href="/Daylun Builder" className="hover:text-[#110C27] text-lg font-bold">
+          BUILDER
         </a>
       </nav>
 
       {/* Right: Simplified branding */}
       <div className="text-[#0474BC] text-xl font-bold">
-        3D DEMO
+        DEMO
       </div>
     </header>
   );

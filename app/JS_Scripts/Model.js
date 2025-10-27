@@ -6,7 +6,7 @@ import * as THREE from 'three';
 function Model({ location, scene, ...props }) {
   if (scene) {
     // Handle dynamic scene object
-    return <primitive object={scene} {...props} />;
+  return <primitive object={scene} {...props} />;
   } else {
     // Handle GLTF/GLB file
     const { scene: gltfScene } = useGLTF(location);
@@ -58,7 +58,7 @@ export default function Model_Preview({ loc, customScene = null }) {
           {dynamicScene ? (
             <Model scale={0.1} scene={dynamicScene} />
           ) : (
-            <Model scale={0.01} location={loc} />
+          <Model scale={0.01} location={loc} />
           )}
         </Stage>
       </PresentationControls>

@@ -16,13 +16,12 @@ export default function Video() {
       >
         <div className="w-full md:w-1/2 text-center md:text-left md:mt-16">
           <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-extrabold mb-4 md:mb-8 leading-tight">
-            House Builder
+          Daylun Builder 3D
           </h2>
           <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed px-2 md:px-0">
-            The House Builder tool lets you enter your project
-            specifications to generate a complete house plan. This plan includes
-            a detailed list of materials and components required, and you'll also
-            have the option to download the corresponding files.
+            Enter your project specifications to generate a complete house plan. This plan includes
+            a detailed list of materials and components required, and you'll have the option to 
+            download the corresponding files.
           </p>
         </div>
         <div className="w-full md:w-1/2 h-48 md:h-full relative">

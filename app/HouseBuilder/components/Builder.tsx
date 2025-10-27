@@ -3,22 +3,21 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useIsVisible } from "../../JS_Scripts/Visible";
 import Model_Preview from "../../JS_Scripts/Model";
 import { HouseToGLBConverter } from "../../JS_Scripts/HouseToGLB";
+import { useInventoryContext } from "../context/InventoryContext";
 
-// Component types matching the tkinter implementation
+// Blueshell frame component types - simplified for structural design
 enum ComponentType {
-  WALL_PANEL = "wall_panel",
-  DOOR_PANEL = "door_panel", 
-  WINDOW_PANEL = "window_panel",
+  PANEL_4X8 = "panel_4x8",
+  CORNER_PANEL = "corner_panel",
   FLOOR_PANEL = "floor_panel",
   EMPTY = "empty"
 }
 
-// Component colors for visualization
+// Component colors for blueshell visualization
 const COMPONENT_COLORS = {
-  [ComponentType.WALL_PANEL]: "#8B4513",
-  [ComponentType.DOOR_PANEL]: "#654321", 
-  [ComponentType.WINDOW_PANEL]: "#87CEEB",
-  [ComponentType.FLOOR_PANEL]: "#D2691E",
+  [ComponentType.PANEL_4X8]: "#2E8B57",      // Sea Green - main structural panels
+  [ComponentType.CORNER_PANEL]: "#228B22",   // Forest Green - corner reinforcement
+  [ComponentType.FLOOR_PANEL]: "#8FBC8F",    // Dark Sea Green - floor panels
   [ComponentType.EMPTY]: "#F0F0F0"
 };
 
@@ -45,6 +44,9 @@ export default function Builder() {
   const ref_Builder = useRef(null);
   const is_visible_Builder = useIsVisible(ref_Builder);
   
+  // Inventory tracking
+  const { updateInventoryFromHouse } = useInventoryContext();
+  
   // Canvas refs
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -55,7 +57,8 @@ export default function Builder() {
     currentFloorIndex: 0
   });
   
-  const [selectedComponentType, setSelectedComponentType] = useState<ComponentType>(ComponentType.WALL_PANEL);
+  const [selectedComponentType, setSelectedComponentType] = useState<ComponentType>(ComponentType.PANEL_4X8);
+  const [selectedRotation, setSelectedRotation] = useState(0);
   const [statusMessage, setStatusMessage] = useState("Ready");
   
   // Drag selection state
@@ -79,14 +82,14 @@ export default function Builder() {
   // Helper functions
   const getCurrentFloor = (): Floor => house.floors[house.currentFloorIndex];
   
-  const addComponent = (x: number, y: number, type: ComponentType) => {
+  const addComponent = (x: number, y: number, type: ComponentType, rotation: number = 0) => {
     const key = `${x},${y}`;
     const newHouse = { ...house };
     newHouse.floors[house.currentFloorIndex].components[key] = {
       type,
       x,
       y,
-      rotation: 0
+      rotation
     };
     setHouse(newHouse);
   };
@@ -96,6 +99,21 @@ export default function Builder() {
     const newHouse = { ...house };
     delete newHouse.floors[house.currentFloorIndex].components[key];
     setHouse(newHouse);
+  };
+
+  const rotateComponent = (x: number, y: number) => {
+    const key = `${x},${y}`;
+    const component = getCurrentFloor().components[key];
+    if (component) {
+      const newHouse = { ...house };
+      const newRotation = (component.rotation + 90) % 360;
+      newHouse.floors[house.currentFloorIndex].components[key] = {
+        ...component,
+        rotation: newRotation
+      };
+      setHouse(newHouse);
+      setStatusMessage(`Rotated component to ${newRotation}°`);
+    }
   };
   
   // Floor management
@@ -112,7 +130,7 @@ export default function Builder() {
       currentFloorIndex: house.floors.length
     };
     setHouse(newHouse);
-    setStatusMessage(`Added Floor ${newFloor.floorNumber}`);
+    setStatusMessage(`Added Story ${newFloor.floorNumber + 1}`);
   };
   
   const removeFloor = () => {
@@ -127,9 +145,9 @@ export default function Builder() {
         currentFloorIndex: Math.min(house.currentFloorIndex, newFloors.length - 1)
       };
       setHouse(newHouse);
-      setStatusMessage("Removed floor");
+      setStatusMessage("Removed story");
     } else {
-      setStatusMessage("Must have at least one floor");
+      setStatusMessage("Must have at least one story");
     }
   };
   
@@ -142,7 +160,7 @@ export default function Builder() {
     const newHouse = { ...house };
     newHouse.floors[house.currentFloorIndex].components = {};
     setHouse(newHouse);
-    setStatusMessage("Cleared floor");
+    setStatusMessage("Cleared story");
   };
   
   const fillWalls = () => {
@@ -150,19 +168,36 @@ export default function Builder() {
     const newHouse = { ...house };
     const components = { ...floor.components };
     
-    // Fill perimeter with walls
-    for (let x = 0; x < floor.width; x++) {
-      components[`${x},0`] = { type: ComponentType.WALL_PANEL, x, y: 0, rotation: 0 };
-      components[`${x},${floor.height - 1}`] = { type: ComponentType.WALL_PANEL, x, y: floor.height - 1, rotation: 0 };
+    // Smart blueshell frame placement with proper orientations and corners
+    
+    // Top and bottom edges - horizontal 4x8 panels (0° rotation)
+    for (let x = 1; x < floor.width - 1; x++) {
+      components[`${x},0`] = { type: ComponentType.PANEL_4X8, x, y: 0, rotation: 0 };
+      components[`${x},${floor.height - 1}`] = { type: ComponentType.PANEL_4X8, x, y: floor.height - 1, rotation: 0 };
     }
+    
+    // Left and right edges - vertical 4x8 panels (90° rotation)
     for (let y = 1; y < floor.height - 1; y++) {
-      components[`0,${y}`] = { type: ComponentType.WALL_PANEL, x: 0, y, rotation: 0 };
-      components[`${floor.width - 1},${y}`] = { type: ComponentType.WALL_PANEL, x: floor.width - 1, y, rotation: 0 };
+      components[`0,${y}`] = { type: ComponentType.PANEL_4X8, x: 0, y, rotation: 90 };
+      components[`${floor.width - 1},${y}`] = { type: ComponentType.PANEL_4X8, x: floor.width - 1, y, rotation: 90 };
     }
+    
+    // Corner panels with appropriate rotations for structural integrity
+    // Top-left corner (0° rotation - L opens to bottom-right)
+    components[`0,0`] = { type: ComponentType.CORNER_PANEL, x: 0, y: 0, rotation: 0 };
+    
+    // Top-right corner (90° rotation - L opens to bottom-left)
+    components[`${floor.width - 1},0`] = { type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: 0, rotation: 90 };
+    
+    // Bottom-right corner (180° rotation - L opens to top-left)
+    components[`${floor.width - 1},${floor.height - 1}`] = { type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: floor.height - 1, rotation: 180 };
+    
+    // Bottom-left corner (270° rotation - L opens to top-right)
+    components[`0,${floor.height - 1}`] = { type: ComponentType.CORNER_PANEL, x: 0, y: floor.height - 1, rotation: 270 };
     
     newHouse.floors[house.currentFloorIndex].components = components;
     setHouse(newHouse);
-    setStatusMessage("Added perimeter walls");
+    setStatusMessage("Added blueshell frame perimeter with corner reinforcements");
   };
 
   const loadFloorPanels = () => {
@@ -179,7 +214,7 @@ export default function Builder() {
     
     newHouse.floors[house.currentFloorIndex].components = components;
     setHouse(newHouse);
-    setStatusMessage("Loaded floor panels");
+    setStatusMessage("Filled floor with panels");
   };
   
   // Canvas drawing - 2D Grid View
@@ -255,8 +290,20 @@ export default function Builder() {
     const y1 = component.y * cellSize;
     const x2 = x1 + cellSize;
     const y2 = y1 + cellSize;
+    const centerX = x1 + cellSize / 2;
+    const centerY = y1 + cellSize / 2;
     
     const color = COMPONENT_COLORS[component.type];
+    
+    // Save context for rotation
+    ctx.save();
+    
+    // Apply rotation around component center
+    if (component.rotation !== 0) {
+      ctx.translate(centerX, centerY);
+      ctx.rotate((component.rotation * Math.PI) / 180);
+      ctx.translate(-centerX, -centerY);
+    }
     
     // Draw base rectangle
     ctx.fillStyle = color;
@@ -265,34 +312,142 @@ export default function Builder() {
     ctx.fillRect(x1, y1, cellSize, cellSize);
     ctx.strokeRect(x1, y1, cellSize, cellSize);
     
-    // Draw component-specific details
+    // Draw blueshell panel-specific details with orientation indicators
     ctx.strokeStyle = 'white';
     ctx.lineWidth = 2;
     
-    if (component.type === ComponentType.DOOR_PANEL) {
-      // Draw door swing arc
+    if (component.type === ComponentType.PANEL_4X8) {
+      // Draw 4x8 panel with structural grid pattern
+      ctx.strokeStyle = '#1F5F3F';
+      ctx.lineWidth = 2;
+      
+      // Draw structural grid (4x8 panel divisions)
+      const gridX = cellSize / 4;
+      const gridY = cellSize / 8;
+      
+      // Vertical lines
+      for (let i = 1; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x1 + i * gridX, y1);
+        ctx.lineTo(x1 + i * gridX, y2);
+        ctx.stroke();
+      }
+      
+      // Horizontal lines
+      for (let i = 1; i < 8; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1 + i * gridY);
+        ctx.lineTo(x2, y1 + i * gridY);
+        ctx.stroke();
+      }
+      
+      // Add panel label
+      ctx.fillStyle = 'white';
+      ctx.font = `${Math.max(8, cellSize * 0.15)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('4×8', centerX, centerY);
+      
+    } else if (component.type === ComponentType.CORNER_PANEL) {
+      // Draw corner panel with L-shape reinforcement
+      ctx.strokeStyle = '#1F5F3F';
+      ctx.lineWidth = 4;
+      
+      // Define L-shape relative to center, then let rotation handle orientation
+      const thickness = 3;
+      const halfCell = cellSize / 2;
+      
       ctx.beginPath();
-      ctx.arc(x1, y1, cellSize, 0, Math.PI / 2);
+      // Vertical part of L (left side of default orientation)
+      ctx.moveTo(centerX - halfCell + thickness, centerY - halfCell);
+      ctx.lineTo(centerX - halfCell + thickness, centerY + halfCell);
+      
+      // Horizontal part of L (bottom side of default orientation)  
+      ctx.moveTo(centerX - halfCell, centerY + halfCell - thickness);
+      ctx.lineTo(centerX + halfCell, centerY + halfCell - thickness);
       ctx.stroke();
-    } else if (component.type === ComponentType.WINDOW_PANEL) {
-      // Draw window cross
+      
+      // Add corner reinforcement indicator (diagonal brace)
+      ctx.strokeStyle = '#0F4F2F';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x1 + cellSize / 2, y1);
-      ctx.lineTo(x1 + cellSize / 2, y2);
-      ctx.moveTo(x1, y1 + cellSize / 2);
-      ctx.lineTo(x2, y1 + cellSize / 2);
+      ctx.moveTo(centerX - halfCell, centerY + halfCell);
+      ctx.lineTo(centerX - halfCell + cellSize * 0.3, centerY + halfCell - cellSize * 0.3);
       ctx.stroke();
+      
     } else if (component.type === ComponentType.FLOOR_PANEL) {
-      // Draw floor tile pattern
-      ctx.strokeStyle = '#8B6914';
+      // Draw floor panel with decking pattern
+      ctx.strokeStyle = '#4F7F5F';
       ctx.lineWidth = 1;
-      const padding = Math.max(2, cellSize * 0.1); // Responsive padding
+      const padding = Math.max(2, cellSize * 0.1);
+      
+      // Draw decking lines
+      const deckingSpacing = cellSize / 6;
+      for (let i = 0; i <= 6; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x1 + padding, y1 + padding + i * deckingSpacing);
+        ctx.lineTo(x2 - padding, y1 + padding + i * deckingSpacing);
+        ctx.stroke();
+      }
+      
+      // Add floor label
+      ctx.fillStyle = 'white';
+      ctx.font = `${Math.max(6, cellSize * 0.12)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('FLOOR', centerX, centerY);
+    }
+    
+    // Restore context
+    ctx.restore();
+    
+    // Draw rotation indicator (always upright, outside the rotated context)
+    if (component.rotation !== 0 && component.type !== ComponentType.FLOOR_PANEL) {
+      ctx.save();
+      ctx.fillStyle = 'red';
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1;
+      
+      // Draw rotation angle text
+      ctx.font = `${Math.max(8, cellSize * 0.2)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      const textX = centerX;
+      const textY = y1 - 8;
+      
+      ctx.fillText(`${component.rotation}°`, textX, textY);
+      ctx.strokeText(`${component.rotation}°`, textX, textY);
+      
+      // Draw directional arrow
+      const arrowSize = cellSize * 0.15;
+      const arrowX = x2 + 5;
+      const arrowY = centerY;
+      
+      ctx.fillStyle = 'red';
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      
+      // Arrow pointing in rotation direction
+      const angle = (component.rotation * Math.PI) / 180;
+      const arrowTipX = arrowX + Math.cos(angle) * arrowSize;
+      const arrowTipY = arrowY + Math.sin(angle) * arrowSize;
+      
       ctx.beginPath();
-      ctx.moveTo(x1 + padding, y1 + padding);
-      ctx.lineTo(x2 - padding, y2 - padding);
-      ctx.moveTo(x1 + padding, y2 - padding);
-      ctx.lineTo(x2 - padding, y1 + padding);
+      ctx.moveTo(arrowX, arrowY);
+      ctx.lineTo(arrowTipX, arrowTipY);
+      
+      // Arrow head
+      const headAngle1 = angle + Math.PI * 0.75;
+      const headAngle2 = angle - Math.PI * 0.75;
+      const headSize = arrowSize * 0.6;
+      
+      ctx.lineTo(arrowTipX + Math.cos(headAngle1) * headSize, arrowTipY + Math.sin(headAngle1) * headSize);
+      ctx.moveTo(arrowTipX, arrowTipY);
+      ctx.lineTo(arrowTipX + Math.cos(headAngle2) * headSize, arrowTipY + Math.sin(headAngle2) * headSize);
       ctx.stroke();
+      
+      ctx.restore();
     }
   };
   
@@ -398,16 +553,14 @@ export default function Builder() {
       const zOffset = floorIdx * floorHeight * scale;
       const isCurrentFloor = floorIdx === house.currentFloorIndex;
       
-      // Draw components
+      // Draw blueshell frame components
       Object.values(floor.components).forEach(component => {
-        if (component.type === ComponentType.WALL_PANEL) {
-          drawIsoWall(ctx, component.x, component.y, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-        } else if (component.type === ComponentType.DOOR_PANEL) {
-          drawIsoDoor(ctx, component.x, component.y, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-        } else if (component.type === ComponentType.WINDOW_PANEL) {
-          drawIsoWindow(ctx, component.x, component.y, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+        if (component.type === ComponentType.PANEL_4X8) {
+          drawIsoPanel4x8(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+        } else if (component.type === ComponentType.CORNER_PANEL) {
+          drawIsoCornerPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
         } else if (component.type === ComponentType.FLOOR_PANEL) {
-          drawIsoFloor(ctx, component.x, component.y, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+          drawIsoFloorPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
         }
       });
     });
@@ -430,22 +583,23 @@ export default function Builder() {
     return [p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], p4[0], p4[1]];
   };
   
-  // 3D Isometric drawing functions
-  const drawIsoWall = (ctx: CanvasRenderingContext2D, x: number, y: number, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const wallHeight = 3 * scale;
-    const color = isCurrentFloor ? '#8B4513' : '#A0826D';
+  // 3D Isometric drawing functions for blueshell panels
+  const drawIsoPanel4x8 = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
+    const panelHeight = 3 * scale;
+    const color = isCurrentFloor ? '#2E8B57' : '#5F9F7F';
     
-    const p1 = isoProject(x, y, zBase, scale, offsetX, offsetY);
-    const p2 = isoProject(x + 1, y, zBase, scale, offsetX, offsetY);
-    const p3 = isoProject(x + 1, y, zBase + wallHeight, scale, offsetX, offsetY);
-    const p4 = isoProject(x, y, zBase + wallHeight, scale, offsetX, offsetY);
-    const p5 = isoProject(x + 1, y + 1, zBase, scale, offsetX, offsetY);
-    const p6 = isoProject(x + 1, y + 1, zBase + wallHeight, scale, offsetX, offsetY);
-    const p7 = isoProject(x, y + 1, zBase + wallHeight, scale, offsetX, offsetY);
+    const p1 = isoProject(component.x, component.y, zBase, scale, offsetX, offsetY);
+    const p2 = isoProject(component.x + 1, component.y, zBase, scale, offsetX, offsetY);
+    const p3 = isoProject(component.x + 1, component.y, zBase + panelHeight, scale, offsetX, offsetY);
+    const p4 = isoProject(component.x, component.y, zBase + panelHeight, scale, offsetX, offsetY);
+    const p5 = isoProject(component.x + 1, component.y + 1, zBase, scale, offsetX, offsetY);
+    const p6 = isoProject(component.x + 1, component.y + 1, zBase + panelHeight, scale, offsetX, offsetY);
+    const p7 = isoProject(component.x, component.y + 1, zBase + panelHeight, scale, offsetX, offsetY);
     
     // Front face
     ctx.fillStyle = color;
     ctx.strokeStyle = 'black';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(p1[0], p1[1]);
     ctx.lineTo(p2[0], p2[1]);
@@ -456,6 +610,7 @@ export default function Builder() {
     ctx.stroke();
     
     // Right face
+    ctx.fillStyle = '#1F5F3F';
     ctx.beginPath();
     ctx.moveTo(p2[0], p2[1]);
     ctx.lineTo(p5[0], p5[1]);
@@ -466,7 +621,7 @@ export default function Builder() {
     ctx.stroke();
     
     // Top face
-    ctx.fillStyle = '#6B3410';
+    ctx.fillStyle = '#4F8F6F';
     ctx.beginPath();
     ctx.moveTo(p4[0], p4[1]);
     ctx.lineTo(p3[0], p3[1]);
@@ -475,110 +630,180 @@ export default function Builder() {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    
+    // Add structural grid lines on front face
+    ctx.strokeStyle = '#1F5F3F';
+    ctx.lineWidth = 0.5;
+    const gridLines = 4;
+    for (let i = 1; i < gridLines; i++) {
+      const ratio = i / gridLines;
+      const px = p1[0] + (p2[0] - p1[0]) * ratio;
+      const py = p1[1] + (p2[1] - p1[1]) * ratio;
+      const px2 = p4[0] + (p3[0] - p4[0]) * ratio;
+      const py2 = p4[1] + (p3[1] - p4[1]) * ratio;
+      
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px2, py2);
+      ctx.stroke();
+    }
   };
   
-  const drawIsoDoor = (ctx: CanvasRenderingContext2D, x: number, y: number, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const doorHeight = 2.5 * scale;
-    const color = isCurrentFloor ? '#654321' : '#806040';
+  const drawIsoCornerPanel = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
+    const panelHeight = 3 * scale;
+    const color = isCurrentFloor ? '#228B22' : '#5F9F5F';
+    const thickness = 0.25; // Panel thickness
     
-    const p1 = isoProject(x, y, zBase, scale, offsetX, offsetY);
-    const p2 = isoProject(x + 1, y, zBase, scale, offsetX, offsetY);
-    const p3 = isoProject(x + 1, y, zBase + doorHeight, scale, offsetX, offsetY);
-    const p4 = isoProject(x, y, zBase + doorHeight, scale, offsetX, offsetY);
+    // Define L-shape vertices based on rotation (unified shape approach)
+    let lVertices: Array<{x: number, y: number}> = [];
+    
+    switch (component.rotation) {
+      case 0: // L opens to bottom-right ⌞
+        lVertices = [
+          {x: 0, y: 0},                    // Top-left outer
+          {x: thickness, y: 0},            // Top-left inner
+          {x: thickness, y: 1-thickness},  // Inner corner
+          {x: 1, y: 1-thickness},          // Bottom inner
+          {x: 1, y: 1},                    // Bottom-right outer
+          {x: 0, y: 1}                     // Bottom-left outer
+        ];
+        break;
+      case 90: // L opens to bottom-left ⌟
+        lVertices = [
+          {x: 0, y: 0},                    // Top-left outer
+          {x: 1, y: 0},                    // Top-right outer
+          {x: 1, y: 1},                    // Bottom-right outer
+          {x: 0, y: 1},                    // Bottom-left outer
+          {x: 0, y: 1-thickness},          // Left inner
+          {x: 1-thickness, y: 1-thickness} // Inner corner
+        ];
+        break;
+      case 180: // L opens to top-left ⌜
+        lVertices = [
+          {x: 0, y: 0},                    // Top-left outer
+          {x: 1, y: 0},                    // Top-right outer
+          {x: 1, y: 1},                    // Bottom-right outer
+          {x: 1-thickness, y: 1},          // Bottom inner
+          {x: 1-thickness, y: thickness},  // Inner corner
+          {x: 0, y: thickness}             // Left inner
+        ];
+        break;
+      case 270: // L opens to top-right ⌝
+        lVertices = [
+          {x: thickness, y: 0},            // Top inner
+          {x: 1, y: 0},                    // Top-right outer
+          {x: 1, y: 1},                    // Bottom-right outer
+          {x: 0, y: 1},                    // Bottom-left outer
+          {x: 0, y: 0},                    // Top-left outer
+          {x: thickness, y: thickness}     // Inner corner
+        ];
+        break;
+      default: // Fallback to 0 degree
+        lVertices = [
+          {x: 0, y: 0}, {x: thickness, y: 0}, {x: thickness, y: 1-thickness},
+          {x: 1, y: 1-thickness}, {x: 1, y: 1}, {x: 0, y: 1}
+        ];
+    }
+    
+    // Convert to world coordinates
+    const worldVertices = lVertices.map(v => ({
+      x: component.x + v.x,
+      y: component.y + v.y
+    }));
+    
+    // Project all vertices to isometric space
+    const bottomPoints = worldVertices.map(v => isoProject(v.x, v.y, zBase, scale, offsetX, offsetY));
+    const topPoints = worldVertices.map(v => isoProject(v.x, v.y, zBase + panelHeight, scale, offsetX, offsetY));
+    
+    // Draw the unified L-shaped corner panel
+    
+    // Bottom face (foundation)
+    ctx.fillStyle = '#1F5F1F';
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bottomPoints[0][0], bottomPoints[0][1]);
+    for (let i = 1; i < bottomPoints.length; i++) {
+      ctx.lineTo(bottomPoints[i][0], bottomPoints[i][1]);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Top face
+    ctx.fillStyle = '#4F8F4F';
+    ctx.beginPath();
+    ctx.moveTo(topPoints[0][0], topPoints[0][1]);
+    for (let i = 1; i < topPoints.length; i++) {
+      ctx.lineTo(topPoints[i][0], topPoints[i][1]);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Side faces - draw each edge as a separate face
+    ctx.fillStyle = color;
+    for (let i = 0; i < worldVertices.length; i++) {
+      const next = (i + 1) % worldVertices.length;
+      
+      // Only draw visible faces (avoid internal faces)
+      const edge = {
+        x: worldVertices[next].x - worldVertices[i].x,
+        y: worldVertices[next].y - worldVertices[i].y
+      };
+      
+      // Skip very small edges (internal connections)
+      if (Math.abs(edge.x) < 0.01 && Math.abs(edge.y) < 0.01) continue;
+      
+      // Draw side face between bottom[i] -> bottom[next] -> top[next] -> top[i]
+      ctx.beginPath();
+      ctx.moveTo(bottomPoints[i][0], bottomPoints[i][1]);
+      ctx.lineTo(bottomPoints[next][0], bottomPoints[next][1]);
+      ctx.lineTo(topPoints[next][0], topPoints[next][1]);
+      ctx.lineTo(topPoints[i][0], topPoints[i][1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  };
+  
+  const drawIsoFloorPanel = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
+    const floorThickness = 0.3 * scale;
+    const color = isCurrentFloor ? '#8FBC8F' : '#A8CCA8';
+    
+    const p1 = isoProject(component.x, component.y, zBase + floorThickness, scale, offsetX, offsetY);
+    const p2 = isoProject(component.x + 1, component.y, zBase + floorThickness, scale, offsetX, offsetY);
+    const p3 = isoProject(component.x + 1, component.y + 1, zBase + floorThickness, scale, offsetX, offsetY);
+    const p4 = isoProject(component.x, component.y + 1, zBase + floorThickness, scale, offsetX, offsetY);
     
     ctx.fillStyle = color;
     ctx.strokeStyle = 'black';
-    ctx.beginPath();
-    ctx.moveTo(p1[0], p1[1]);
-    ctx.lineTo(p2[0], p2[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p4[0], p4[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  };
-  
-  const drawIsoWindow = (ctx: CanvasRenderingContext2D, x: number, y: number, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const wallHeight = 3 * scale;
-    const windowBottom = 1 * scale;
-    const windowTop = 2.5 * scale;
-    const color = isCurrentFloor ? '#8B4513' : '#A0826D';
-    
-    // Bottom part
-    const p1 = isoProject(x, y, zBase, scale, offsetX, offsetY);
-    const p2 = isoProject(x + 1, y, zBase, scale, offsetX, offsetY);
-    const p5 = isoProject(x, y, zBase + windowBottom, scale, offsetX, offsetY);
-    const p6 = isoProject(x + 1, y, zBase + windowBottom, scale, offsetX, offsetY);
-    
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'black';
-    ctx.beginPath();
-    ctx.moveTo(p1[0], p1[1]);
-    ctx.lineTo(p2[0], p2[1]);
-    ctx.lineTo(p6[0], p6[1]);
-    ctx.lineTo(p5[0], p5[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Top part
-    const p7 = isoProject(x, y, zBase + windowTop, scale, offsetX, offsetY);
-    const p8 = isoProject(x + 1, y, zBase + windowTop, scale, offsetX, offsetY);
-    const p3 = isoProject(x + 1, y, zBase + wallHeight, scale, offsetX, offsetY);
-    const p4 = isoProject(x, y, zBase + wallHeight, scale, offsetX, offsetY);
-    
-    ctx.beginPath();
-    ctx.moveTo(p7[0], p7[1]);
-    ctx.lineTo(p8[0], p8[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p4[0], p4[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Window glass
-    ctx.fillStyle = '#87CEEB';
-    ctx.globalAlpha = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(p5[0], p5[1]);
-    ctx.lineTo(p6[0], p6[1]);
-    ctx.lineTo(p8[0], p8[1]);
-    ctx.lineTo(p7[0], p7[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.globalAlpha = 1.0;
-  };
-  
-  const drawIsoFloor = (ctx: CanvasRenderingContext2D, x: number, y: number, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const floorThickness = 0.2 * scale;
-    const color = isCurrentFloor ? '#D2691E' : '#C8B88B';
-    
-    const p1 = isoProject(x, y, zBase + floorThickness, scale, offsetX, offsetY);
-    const p2 = isoProject(x + 1, y, zBase + floorThickness, scale, offsetX, offsetY);
-    const p3 = isoProject(x + 1, y + 1, zBase + floorThickness, scale, offsetX, offsetY);
-    const p4 = isoProject(x, y + 1, zBase + floorThickness, scale, offsetX, offsetY);
-    
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'black';
-    ctx.beginPath();
-    ctx.moveTo(p1[0], p1[1]);
-    ctx.lineTo(p2[0], p2[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p4[0], p4[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Tile pattern
-    ctx.strokeStyle = '#8B6914';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(p1[0], p1[1]);
+    ctx.lineTo(p2[0], p2[1]);
     ctx.lineTo(p3[0], p3[1]);
-    ctx.moveTo(p2[0], p2[1]);
     ctx.lineTo(p4[0], p4[1]);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
+    
+    // Decking pattern
+    ctx.strokeStyle = '#4F7F5F';
+    ctx.lineWidth = 0.5;
+    const deckingLines = 6;
+    for (let i = 1; i < deckingLines; i++) {
+      const ratio = i / deckingLines;
+      const px1 = p1[0] + (p2[0] - p1[0]) * ratio;
+      const py1 = p1[1] + (p2[1] - p1[1]) * ratio;
+      const px2 = p4[0] + (p3[0] - p4[0]) * ratio;
+      const py2 = p4[1] + (p3[1] - p4[1]) * ratio;
+      
+      ctx.beginPath();
+      ctx.moveTo(px1, py1);
+      ctx.lineTo(px2, py2);
+      ctx.stroke();
+    }
   };
   
   // Mouse event handlers
@@ -597,9 +822,15 @@ export default function Builder() {
     const y = Math.floor(canvasY / cellSize);
     
     if (x >= 0 && x < floor.width && y >= 0 && y < floor.height) {
-      setIsDragging(true);
-      setDragStart({x, y});
-      setDragEnd({x, y});
+      if (event.button === 1) { // Middle click - rotate existing component
+        event.preventDefault();
+        rotateComponent(x, y);
+      } else if (event.button === 0) { // Left click only - start drag to place components
+        setIsDragging(true);
+        setDragStart({x, y});
+        setDragEnd({x, y});
+      }
+      // Right click (button 2) is handled by onContextMenu, so we ignore it here
     }
   };
 
@@ -625,7 +856,8 @@ export default function Builder() {
   };
 
   const handleMouseUp = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !dragStart || !dragEnd) return;
+    // Only process left mouse button releases (button 0)
+    if (event.button !== 0 || !isDragging || !dragStart || !dragEnd) return;
     
     setIsDragging(false);
     
@@ -638,7 +870,7 @@ export default function Builder() {
     let placedCount = 0;
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        addComponent(x, y, selectedComponentType);
+        addComponent(x, y, selectedComponentType, selectedRotation);
         placedCount++;
       }
     }
@@ -654,6 +886,11 @@ export default function Builder() {
   
   const handleGridRightClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     event.preventDefault();
+    
+    // Clear any ongoing drag state
+    setIsDragging(false);
+    setDragStart(null);
+    setDragEnd(null);
     
     const canvas = gridCanvasRef.current;
     if (!canvas) return;
@@ -673,6 +910,8 @@ export default function Builder() {
       setStatusMessage(`Removed component at (${x}, ${y})`);
     }
   };
+
+
   
   // File operations
   const saveProject = () => {
@@ -706,36 +945,47 @@ export default function Builder() {
   
   const exportToManufacturing = () => {
     const manufacturingData = {
-      project: 'House Builder Project',
+      project: 'Blueshell Frame Design',
       timestamp: new Date().toISOString(),
-      floors: house.floors.map(floor => ({
-        floorNumber: floor.floorNumber,
+      stories: house.floors.map(floor => ({
+        storyNumber: floor.floorNumber + 1,
         dimensions: { width: floor.width, height: floor.height },
-        components: Object.values(floor.components).map(component => ({
+        panels: Object.values(floor.components).map(component => ({
           type: component.type,
           position: { x: component.x, y: component.y },
-          rotation: component.rotation
+          rotation: component.rotation,
+          panelSize: component.type === ComponentType.PANEL_4X8 ? "4x8" : 
+                     component.type === ComponentType.CORNER_PANEL ? "corner" : "floor"
         }))
-      }))
+      })),
+      totalPanels: house.floors.reduce((total, floor) => 
+        total + Object.keys(floor.components).length, 0
+      ),
+      estimatedHeight: house.floors.length * 8 // 8 feet per story
     };
     
     const blob = new Blob([JSON.stringify(manufacturingData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'house-manufacturing-data.json';
+    a.download = 'blueshell-frame-data.json';
     a.click();
     URL.revokeObjectURL(url);
-    setStatusMessage("Manufacturing data exported");
+    setStatusMessage("Blueshell frame data exported");
   };
 
   const generateCustomModel = async () => {
     try {
       setStatusMessage("Generating 3D model...");
       const scene = glbConverter.convertHouseToScene(house);
-      setCustomModel(scene);
-      setSelectedModel("donut"); // Switch to the custom model tab
-      setStatusMessage("3D model generated successfully! View it in the 'Custom Design' tab below.");
+      
+      // Force update by clearing and then setting the custom model
+      setCustomModel(null);
+      setTimeout(() => {
+        setCustomModel(scene);
+        setSelectedModel("donut"); // Switch to the custom model tab
+        setStatusMessage("3D model generated successfully! Check the 'Custom Design' tab below.");
+      }, 100);
     } catch (error) {
       console.error('Error generating custom model:', error);
       setStatusMessage("Error generating 3D model. Please try again.");
@@ -757,11 +1007,29 @@ export default function Builder() {
     }
   };
   
+  // Keyboard event handling
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.key === 'r' || event.key === 'R') {
+        setSelectedRotation(prev => (prev + 90) % 360);
+        setStatusMessage(`Rotation set to ${(selectedRotation + 90) % 360}°`);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [selectedRotation]);
+
   // Update views when house changes
   useEffect(() => {
     updateFloorView();
     update3DPreview();
   }, [house, updateFloorView, update3DPreview]);
+
+  // Update inventory when house design changes
+  useEffect(() => {
+    updateInventoryFromHouse(house);
+  }, [house, updateInventoryFromHouse]);
 
   // Handle window resize for responsive canvas
   useEffect(() => {
@@ -783,49 +1051,51 @@ export default function Builder() {
         }`}
       >
         <div className="text-center mb-6 md:mb-8">
-          <h2 className="text-2xl md:text-4xl font-extrabold mb-2 md:mb-4">House Builder</h2>
-          <p className="text-sm md:text-lg">Design your house with our interactive floor plan builder</p>
+          <h2 className="text-2xl md:text-4xl font-extrabold mb-2 md:mb-4">Blueshell Frame Designer</h2>
+          <p className="text-sm md:text-lg">Design multi-story blueshell frames using 4×8 structural panels</p>
         </div>
 
         {/* Mobile-first responsive grid */}
-        <div className="flex flex-col lg:grid lg:grid-cols-12 gap-4 md:gap-6 bg-gray-100 text-gray-800 p-3 md:p-6 rounded-lg">
+        <div className="flex flex-col lg:grid lg:grid-cols-12 gap-4 bg-gray-100 text-gray-800 p-4 rounded-lg">
           
-          {/* Controls Panel - Full width on mobile, left column on desktop */}
-          <div className="w-full lg:col-span-3 space-y-4 md:space-y-6">
-            {/* Floor Management */}
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">Floor Management</h3>
-              <select 
-                value={house.currentFloorIndex}
-                onChange={(e) => changeFloor(parseInt(e.target.value))}
-                className="w-full p-2 border rounded mb-2 md:mb-3 text-sm md:text-base"
-              >
-                {house.floors.map((_, index) => (
-                  <option key={index} value={index}>Floor {index}</option>
-                ))}
-              </select>
-              <div className="flex gap-2">
-                <button 
-                  onClick={addFloor}
-                  className="flex-1 bg-blue-500 text-white px-2 md:px-3 py-2 rounded hover:bg-blue-600 text-xs md:text-sm"
+          {/* Controls Panel - More compact layout */}
+          <div className="w-full lg:col-span-3 space-y-3">
+            
+            {/* Floor Management & Components Combined */}
+            <div className="bg-white p-3 rounded-lg shadow">
+              <h3 className="font-bold text-lg mb-3">Story & Panels</h3>
+              
+              {/* Floor Management - Compact */}
+              <div className="mb-3 pb-3 border-b">
+                <select 
+                  value={house.currentFloorIndex}
+                  onChange={(e) => changeFloor(parseInt(e.target.value))}
+                  className="w-full p-2 border rounded mb-2 text-sm"
                 >
-                  Add Floor
-                </button>
-                <button 
-                  onClick={removeFloor}
-                  className="flex-1 bg-red-500 text-white px-2 md:px-3 py-2 rounded hover:bg-red-600 text-xs md:text-sm"
-                >
-                  Remove Floor
-                </button>
+                  {house.floors.map((_, index) => (
+                    <option key={index} value={index}>Story {index + 1}</option>
+                  ))}
+                </select>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={addFloor}
+                    className="flex-1 bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 text-xs"
+                  >
+                    Add Story
+                  </button>
+                  <button 
+                    onClick={removeFloor}
+                    className="flex-1 bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-            </div>
-
-            {/* Components */}
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">Components</h3>
-              <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
+              
+              {/* Blueshell Panel Types - More compact */}
+              <div className="grid grid-cols-1 gap-1 mb-3">
                 {Object.values(ComponentType).filter(type => type !== ComponentType.EMPTY).map(type => (
-                  <label key={type} className="flex items-center text-xs md:text-sm">
+                  <label key={type} className="flex items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
                     <input
                       type="radio"
                       name="component"
@@ -834,123 +1104,148 @@ export default function Builder() {
                       onChange={(e) => setSelectedComponentType(e.target.value as ComponentType)}
                       className="mr-2"
                     />
-                    {type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    {type === ComponentType.PANEL_4X8 ? "4×8 Panel" : 
+                     type === ComponentType.CORNER_PANEL ? "Corner Panel" :
+                     type === ComponentType.FLOOR_PANEL ? "Floor Panel" : 
+                     String(type).replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                   </label>
                 ))}
               </div>
+              
+              {/* Rotation Controls - Inline */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">Rotation:</span>
+                <button
+                  onClick={() => setSelectedRotation(prev => (prev - 90 + 360) % 360)}
+                  className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-sm"
+                >
+                  ↺
+                </button>
+                <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded min-w-[40px] text-center">
+                  {selectedRotation}°
+                </span>
+                <button
+                  onClick={() => setSelectedRotation(prev => (prev + 90) % 360)}
+                  className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-sm"
+                >
+                  ↻
+                </button>
+                <span className="text-xs text-gray-500 ml-2">Press R</span>
+              </div>
             </div>
 
-            {/* Tools */}
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">Tools</h3>
-              <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
+            {/* Tools & Operations Combined */}
+            <div className="bg-white p-3 rounded-lg shadow">
+              <h3 className="font-bold text-lg mb-3">Frame Tools</h3>
+              
+              {/* Quick Tools - Horizontal layout */}
+              <div className="grid grid-cols-2 gap-2 mb-3 pb-3 border-b">
                 <button 
                   onClick={clearFloor}
-                  className="bg-orange-500 text-white px-2 md:px-3 py-2 rounded hover:bg-orange-600 text-xs md:text-sm"
+                  className="bg-orange-500 text-white px-2 py-1 rounded hover:bg-orange-600 text-xs"
                 >
-                  Clear Floor
+                  Clear Story
                 </button>
                 <button 
                   onClick={fillWalls}
-                  className="bg-green-500 text-white px-2 md:px-3 py-2 rounded hover:bg-green-600 text-xs md:text-sm"
+                  className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 text-xs"
                 >
-                  Fill Walls
+                  Frame Perimeter
                 </button>
+              </div>
+              
+              {/* File Operations - Compact */}
+              <div className="space-y-1">
                 <button 
                   onClick={loadFloorPanels}
-                  className="bg-amber-600 text-white px-2 md:px-3 py-2 rounded hover:bg-amber-700 text-xs md:text-sm col-span-2 md:col-span-1"
+                  className="w-full bg-green-700 text-white px-2 py-1 rounded hover:bg-green-800 text-xs"
                 >
-                  Load Floor Panels
+                  Fill Floor Panels
                 </button>
-              </div>
-            </div>
-
-            {/* File Operations */}
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">File Operations</h3>
-              <div className="space-y-2">
-                <button 
-                  onClick={saveProject}
-                  className="w-full bg-blue-600 text-white px-2 md:px-3 py-2 rounded hover:bg-blue-700 text-xs md:text-sm"
-                >
-                  Save Project
-                </button>
-                <label className="w-full bg-purple-600 text-white px-2 md:px-3 py-2 rounded hover:bg-purple-700 cursor-pointer block text-center text-xs md:text-sm">
-                  Load Project
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={loadProject}
-                    className="hidden"
-                  />
-                </label>
+                <div className="grid grid-cols-2 gap-1">
+                  <button 
+                    onClick={saveProject}
+                    className="bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 text-xs"
+                  >
+                    Save
+                  </button>
+                  <label className="bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 cursor-pointer text-center text-xs">
+                    Load
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={loadProject}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
                 <button 
                   onClick={exportToManufacturing}
-                  className="w-full bg-indigo-600 text-white px-2 md:px-3 py-2 rounded hover:bg-indigo-700 text-xs md:text-sm"
+                  className="w-full bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 text-xs"
                 >
-                  Export to Manufacturing
+                  Export Frame Data
                 </button>
               </div>
             </div>
 
-            {/* 3D Model Generation */}
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3">3D Model</h3>
-              <div className="space-y-2">
+            {/* 3D Model Generation - Compact */}
+            <div className="bg-white p-3 rounded-lg shadow">
+              <h3 className="font-bold text-lg mb-2">3D Model</h3>
+              <div className="grid grid-cols-2 gap-1 mb-2">
                 <button 
                   onClick={generateCustomModel}
-                  className="w-full bg-green-600 text-white px-2 md:px-3 py-2 rounded hover:bg-green-700 text-xs md:text-sm"
+                  className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 text-xs"
                 >
-                  Generate 3D Model
+                  Generate
                 </button>
                 <button 
                   onClick={downloadCustomModel}
-                  className="w-full bg-teal-600 text-white px-2 md:px-3 py-2 rounded hover:bg-teal-700 text-xs md:text-sm"
+                  className="bg-teal-600 text-white px-2 py-1 rounded hover:bg-teal-700 text-xs"
                   disabled={!customModel}
                 >
-                  Download GLB
+                  Download
                 </button>
               </div>
-              <p className="text-xs text-gray-600 mt-2">
-                Generate a 3D model from your design and view it in the preview below
+              <p className="text-xs text-gray-600">
+                Generate & view 3D model below
               </p>
             </div>
           </div>
 
-          {/* 2D Grid View - Responsive canvas */}
-          <div className="w-full lg:col-span-6">
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3 text-center">2D Floor Plan</h3>
+          {/* 2D Grid View - Larger space allocation */}
+          <div className="w-full lg:col-span-5">
+            <div className="bg-white p-4 rounded-lg shadow">
+              <h3 className="font-bold text-lg mb-3 text-center">2D Frame Layout</h3>
               <div className="border-2 border-gray-300 rounded overflow-hidden flex justify-center">
                 <canvas
                   ref={gridCanvasRef}
-                  width={320}
-                  height={320}
+                  width={400}
+                  height={400}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                   onContextMenu={handleGridRightClick}
-                  className="cursor-crosshair bg-white max-w-full h-auto md:w-[400px] md:h-[400px]"
-                  style={{ width: '100%', maxWidth: '400px', height: 'auto', aspectRatio: '1' }}
+                  className="cursor-crosshair bg-white"
+                  style={{ width: '100%', maxWidth: '450px', height: 'auto', aspectRatio: '1' }}
                 />
               </div>
-              <p className="text-xs md:text-sm text-gray-600 mt-2 text-center">
-                Left click to place • Right click to remove
+              <p className="text-sm text-gray-600 mt-2 text-center">
+                Left click to place panels • Right click to remove • Middle click to rotate
               </p>
             </div>
           </div>
 
-          {/* 3D Preview - Responsive canvas */}
-          <div className="w-full lg:col-span-3">
-            <div className="bg-white p-3 md:p-4 rounded-lg shadow">
-              <h3 className="font-bold text-base md:text-lg mb-2 md:mb-3 text-center">3D Preview</h3>
+          {/* 3D Preview - Allocated space */}
+          <div className="w-full lg:col-span-4">
+            <div className="bg-white p-4 rounded-lg shadow">
+              <h3 className="font-bold text-lg mb-3 text-center">3D Preview</h3>
               <div className="flex justify-center">
                 <canvas
                   ref={previewCanvasRef}
-                  width={280}
-                  height={400}
-                  className="border border-gray-300 rounded bg-gray-200 max-w-full h-auto md:w-[380px] md:h-[600px]"
-                  style={{ width: '100%', maxWidth: '280px', height: 'auto', aspectRatio: '0.7' }}
+                  width={320}
+                  height={480}
+                  className="border border-gray-300 rounded bg-gray-200"
+                  style={{ width: '100%', maxWidth: '320px', height: 'auto', aspectRatio: '2/3' }}
                 />
               </div>
             </div>
@@ -987,6 +1282,7 @@ export default function Builder() {
 
               <div className="h-48 sm:h-64 md:h-[300px] lg:h-[400px] xl:h-[450px]">
                 <Model_Preview 
+                  key={selectedModel === "donut" && customModel ? `custom-${Date.now()}` : selectedModel}
                   loc={models[selectedModel].path} 
                   customScene={selectedModel === "donut" ? customModel : null}
                 />
@@ -998,12 +1294,12 @@ export default function Builder() {
               <p className="mb-3 md:mb-4 text-sm md:text-base">
                 <strong>Selected Model:</strong> {models[selectedModel].name}
               </p>
-              <p className="mb-3 md:mb-4 text-sm md:text-base">
+              {/* <p className="mb-3 md:mb-4 text-sm md:text-base">
                 Use the floor plan builder above to design your house layout, then preview different architectural styles here.
               </p>
               <p className="text-xs md:text-sm text-gray-300">
                 The 3D models shown here are examples of different house styles that can be built using our panel system.
-              </p>
+              </p> */}
             </div>
           </div>
         </div>

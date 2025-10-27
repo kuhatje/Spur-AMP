@@ -12,7 +12,7 @@ export default function Footer() {
           <div className="text-3xl font-bold text-[#0078C7] mb-2">
             House Builder
           </div>
-          <p className="text-sm text-gray-300">Interactive 3D Building Tool</p>
+          {/* <p className="text-sm text-gray-300">Interactive 3D Building Tool</p> */}
         </div>
 
         {/* Info */}
@@ -21,12 +21,12 @@ export default function Footer() {
             DEMO
           </h2>
           <div className="flex flex-col gap-2 text-sm">
-            <p className="text-gray-300">
+            {/* <p className="text-gray-300">
               Build houses with our interactive tool
             </p>
             <p className="text-gray-300">
               Save, load, and visualize in 3D
-            </p>
+            </p> */}
           </div>
         </div>
       </div>

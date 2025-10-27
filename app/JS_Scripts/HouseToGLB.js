@@ -4,17 +4,15 @@
 import * as THREE from 'three';
 
 const COMPONENT_DIMENSIONS = {
-  wall_panel: { width: 1, height: 2.5, depth: 0.2 },
-  door_panel: { width: 1, height: 2.5, depth: 0.2, openingHeight: 2.0, openingWidth: 0.8 },
-  window_panel: { width: 1, height: 2.5, depth: 0.2, openingHeight: 1.0, openingWidth: 0.8, openingOffsetY: 0.8 },
-  floor_panel: { width: 1, height: 0.1, depth: 1 },
+  panel_4x8: { width: 1, height: 2.5, depth: 0.25 },
+  corner_panel: { width: 1, height: 2.5, depth: 1, thickness: 0.25 },
+  floor_panel: { width: 1, height: 0.15, depth: 1 },
 };
 
 const COMPONENT_COLORS = {
-  wall_panel: 0x8B4513,    // Brown
-  door_panel: 0x654321,    // Dark brown
-  window_panel: 0x87CEEB,  // Sky blue
-  floor_panel: 0xD2691E,   // Chocolate
+  panel_4x8: 0x2E8B57,     // Sea Green - main structural panels
+  corner_panel: 0x228B22,  // Forest Green - corner reinforcement
+  floor_panel: 0x8FBC8F,   // Dark Sea Green - floor panels
 };
 
 export class HouseToGLBConverter {
@@ -36,141 +34,44 @@ export class HouseToGLBConverter {
     }
   }
 
-  createWallGeometry() {
-    const dims = COMPONENT_DIMENSIONS.wall_panel;
+  createPanel4x8Geometry() {
+    const dims = COMPONENT_DIMENSIONS.panel_4x8;
     return new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
   }
 
-  createDoorGeometry() {
-    const dims = COMPONENT_DIMENSIONS.door_panel;
+  createCornerPanelGeometry() {
+    const dims = COMPONENT_DIMENSIONS.corner_panel;
     
-    // Create the main wall geometry
-    const wallGeometry = new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
+    // Create a proper L-shaped geometry using Shape and ExtrudeGeometry
+    const shape = new THREE.Shape();
+    const thickness = dims.thickness;
     
-    // Create the door opening by creating two parts: top and sides
-    const geometries = [];
+    // Define L-shape path (default orientation - opens to bottom-right)
+    shape.moveTo(0, 0);                    // Start at origin
+    shape.lineTo(thickness, 0);            // Top inner edge
+    shape.lineTo(thickness, 1-thickness);  // Inner corner vertical
+    shape.lineTo(1, 1-thickness);          // Inner corner horizontal
+    shape.lineTo(1, 1);                    // Bottom-right outer
+    shape.lineTo(0, 1);                    // Bottom-left outer
+    shape.closePath();                     // Back to start
     
-    // Top part above door
-    const topGeometry = new THREE.BoxGeometry(
-      dims.width, 
-      dims.height - dims.openingHeight, 
-      dims.depth
-    );
-    topGeometry.translate(0, dims.openingHeight / 2, 0);
-    geometries.push(topGeometry);
+    // Extrude the shape to create 3D geometry
+    const extrudeSettings = {
+      depth: dims.height,
+      bevelEnabled: false
+    };
     
-    // Left side
-    const leftSideWidth = (dims.width - dims.openingWidth) / 2;
-    if (leftSideWidth > 0.01) {
-      const leftGeometry = new THREE.BoxGeometry(leftSideWidth, dims.openingHeight, dims.depth);
-      leftGeometry.translate(-dims.width/2 + leftSideWidth/2, -dims.height/2 + dims.openingHeight/2, 0);
-      geometries.push(leftGeometry);
-    }
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     
-    // Right side
-    if (leftSideWidth > 0.01) {
-      const rightGeometry = new THREE.BoxGeometry(leftSideWidth, dims.openingHeight, dims.depth);
-      rightGeometry.translate(dims.width/2 - leftSideWidth/2, -dims.height/2 + dims.openingHeight/2, 0);
-      geometries.push(rightGeometry);
-    }
+    // Rotate to match our coordinate system (Y-up)
+    geometry.rotateX(-Math.PI / 2);
     
-    // Merge geometries
-    if (geometries.length === 1) {
-      return geometries[0];
-    } else {
-      const mergedGeometry = new THREE.BufferGeometry();
-      const positions = [];
-      const normals = [];
-      const uvs = [];
-      
-      geometries.forEach(geo => {
-        const posArray = geo.attributes.position.array;
-        const normArray = geo.attributes.normal.array;
-        const uvArray = geo.attributes.uv.array;
-        
-        positions.push(...posArray);
-        normals.push(...normArray);
-        uvs.push(...uvArray);
-      });
-      
-      mergedGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      mergedGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-      mergedGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-      
-      return mergedGeometry;
-    }
+    // Center the geometry
+    geometry.translate(-0.5, 0, -0.5);
+    
+    return geometry;
   }
 
-  createWindowGeometry() {
-    const dims = COMPONENT_DIMENSIONS.window_panel;
-    
-    // Similar to door but with window opening in the middle
-    const geometries = [];
-    
-    // Top part above window
-    const topHeight = dims.height - dims.openingOffsetY - dims.openingHeight;
-    if (topHeight > 0.01) {
-      const topGeometry = new THREE.BoxGeometry(dims.width, topHeight, dims.depth);
-      topGeometry.translate(0, dims.height/2 - topHeight/2, 0);
-      geometries.push(topGeometry);
-    }
-    
-    // Bottom part below window
-    if (dims.openingOffsetY > 0.01) {
-      const bottomGeometry = new THREE.BoxGeometry(dims.width, dims.openingOffsetY, dims.depth);
-      bottomGeometry.translate(0, -dims.height/2 + dims.openingOffsetY/2, 0);
-      geometries.push(bottomGeometry);
-    }
-    
-    // Left side
-    const leftSideWidth = (dims.width - dims.openingWidth) / 2;
-    if (leftSideWidth > 0.01) {
-      const leftGeometry = new THREE.BoxGeometry(leftSideWidth, dims.openingHeight, dims.depth);
-      leftGeometry.translate(
-        -dims.width/2 + leftSideWidth/2, 
-        -dims.height/2 + dims.openingOffsetY + dims.openingHeight/2, 
-        0
-      );
-      geometries.push(leftGeometry);
-    }
-    
-    // Right side
-    if (leftSideWidth > 0.01) {
-      const rightGeometry = new THREE.BoxGeometry(leftSideWidth, dims.openingHeight, dims.depth);
-      rightGeometry.translate(
-        dims.width/2 - leftSideWidth/2, 
-        -dims.height/2 + dims.openingOffsetY + dims.openingHeight/2, 
-        0
-      );
-      geometries.push(rightGeometry);
-    }
-    
-    // Merge geometries (similar to door logic)
-    if (geometries.length === 1) {
-      return geometries[0];
-    } else {
-      const mergedGeometry = new THREE.BufferGeometry();
-      const positions = [];
-      const normals = [];
-      const uvs = [];
-      
-      geometries.forEach(geo => {
-        const posArray = geo.attributes.position.array;
-        const normArray = geo.attributes.normal.array;
-        const uvArray = geo.attributes.uv.array;
-        
-        positions.push(...posArray);
-        normals.push(...normArray);
-        uvs.push(...uvArray);
-      });
-      
-      mergedGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      mergedGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-      mergedGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-      
-      return mergedGeometry;
-    }
-  }
 
   createFloorGeometry() {
     const dims = COMPONENT_DIMENSIONS.floor_panel;
@@ -190,14 +91,11 @@ export class HouseToGLBConverter {
     let geometry;
     
     switch (component.type) {
-      case 'wall_panel':
-        geometry = this.createWallGeometry();
+      case 'panel_4x8':
+        geometry = this.createPanel4x8Geometry();
         break;
-      case 'door_panel':
-        geometry = this.createDoorGeometry();
-        break;
-      case 'window_panel':
-        geometry = this.createWindowGeometry();
+      case 'corner_panel':
+        geometry = this.createCornerPanelGeometry();
         break;
       case 'floor_panel':
         geometry = this.createFloorGeometry();
@@ -209,29 +107,46 @@ export class HouseToGLBConverter {
     const material = this.createMaterialForComponent(component.type);
     const mesh = new THREE.Mesh(geometry, material);
     
-    // Position the component
-    const x = component.x;
-    const z = component.y; // Y in 2D becomes Z in 3D
-    const y = floorIndex * 2.6; // Stack floors vertically (floor height + small gap)
+    // Improved positioning - center components on grid cells and ensure proper alignment
+    const gridSize = 1.0; // Each grid cell is 1 unit
+    const x = (component.x - 4.5) * gridSize; // Center the 10x10 grid around origin
+    const z = (component.y - 4.5) * gridSize; // Y in 2D becomes Z in 3D
+    const floorHeight = 2.6; // Height between floors
     
-    // For floor panels, position them at the bottom of the floor
+    let y;
     if (component.type === 'floor_panel') {
-      mesh.position.set(x, y - 1.3, z);
+      // Floor panels at the bottom of each floor
+      y = floorIndex * floorHeight - 1.25;
     } else {
-      mesh.position.set(x, y, z);
+      // Walls, doors, windows stand on the floor
+      y = floorIndex * floorHeight + 1.25; // Half the wall height above floor
     }
     
-    // Apply rotation if needed
+    mesh.position.set(x, y, z);
+    
+    // Apply rotation if needed - rotate around Y axis (vertical)
     if (component.rotation) {
       mesh.rotation.y = (component.rotation * Math.PI) / 180;
     }
+    
+    // Add name for debugging
+    mesh.name = `${component.type}_${component.x}_${component.y}_floor${floorIndex}`;
     
     this.group.add(mesh);
   }
 
   convertHouseToScene(house) {
-    // Clear existing geometry
+    // Clear existing geometry and lights
     this.group.clear();
+    
+    // Remove existing lights
+    const lightsToRemove = [];
+    this.scene.traverse((child) => {
+      if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') {
+        lightsToRemove.push(child);
+      }
+    });
+    lightsToRemove.forEach(light => this.scene.remove(light));
     
     // Process each floor
     house.floors.forEach((floor, floorIndex) => {
@@ -240,13 +155,30 @@ export class HouseToGLBConverter {
       });
     });
     
-    // Add some basic lighting to the scene
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    // Add improved lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
     this.scene.add(ambientLight);
     
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 5);
-    this.scene.add(directionalLight);
+    // Multiple directional lights for better illumination
+    const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    mainLight.position.set(10, 10, 5);
+    mainLight.castShadow = false;
+    this.scene.add(mainLight);
+    
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    fillLight.position.set(-5, 8, -5);
+    fillLight.castShadow = false;
+    this.scene.add(fillLight);
+    
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.2);
+    backLight.position.set(0, 5, -10);
+    backLight.castShadow = false;
+    this.scene.add(backLight);
+    
+    // Center the group for better viewing
+    const box = new THREE.Box3().setFromObject(this.group);
+    const center = box.getCenter(new THREE.Vector3());
+    this.group.position.sub(center);
     
     return this.scene;
   }

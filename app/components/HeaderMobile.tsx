@@ -13,7 +13,7 @@ export default function HeaderMobile() {
         </a>
       </div>
 
-      {/* House Builder Link */}
+      {/* Daylun Builder Link */}
       <nav className="flex-1 text-center">
         <a href="/HouseBuilder" className="hover:text-[#110C27] text-sm font-semibold">
           BUILDER TOOL
