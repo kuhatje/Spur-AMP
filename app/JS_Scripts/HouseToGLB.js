@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 
 const COMPONENT_DIMENSIONS = {
-  panel_4x8: { width: 1, height: 2.5, depth: 0.25 },
-  corner_panel: { width: 1, height: 2.5, depth: 1, thickness: 0.25 },
-  floor_panel: { width: 1, height: 0.15, depth: 1 },
+  panel_4x8: { width: 1, thickness: 0.1, height: 2.5},
+  corner_panel: { width: 1, depth: 1, thickness: 0.1, height: 2.5},
+  floor_panel: { width: 1, depth: 1, height: 0.15 },
 };
 
 const COMPONENT_COLORS = {
@@ -36,7 +36,7 @@ export class HouseToGLBConverter {
 
   createPanel4x8Geometry() {
     const dims = COMPONENT_DIMENSIONS.panel_4x8;
-    return new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
+    return new THREE.BoxGeometry(dims.width, dims.thickness, dims.height);
   }
 
   createCornerPanelGeometry() {
@@ -48,14 +48,15 @@ export class HouseToGLBConverter {
     
     // Define L-shape path (default orientation - opens to bottom-right)
     shape.moveTo(0, 0);                    // Start at origin
-    shape.lineTo(thickness, 0);            // Top inner edge
-    shape.lineTo(thickness, 1-thickness);  // Inner corner vertical
-    shape.lineTo(1, 1-thickness);          // Inner corner horizontal
-    shape.lineTo(1, 1);                    // Bottom-right outer
+    shape.lineTo(1, 0);            // Top inner edge
+    shape.lineTo(1, thickness);  // Inner corner vertical
+    shape.lineTo(thickness, thickness);          // Inner corner horizontal
+    shape.lineTo(thickness, 1);                    // Bottom-right outer
     shape.lineTo(0, 1);                    // Bottom-left outer
     shape.closePath();                     // Back to start
     
     // Extrude the shape to create 3D geometry
+    // Shape is in XY plane, extrudes along Z (height)
     const extrudeSettings = {
       depth: dims.height,
       bevelEnabled: false
@@ -63,11 +64,9 @@ export class HouseToGLBConverter {
     
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     
-    // Rotate to match our coordinate system (Y-up)
-    geometry.rotateX(-Math.PI / 2);
     
     // Center the geometry
-    geometry.translate(-0.5, 0, -0.5);
+    geometry.translate(0, 0, -dims.height/2);
     
     return geometry;
   }
@@ -75,7 +74,7 @@ export class HouseToGLBConverter {
 
   createFloorGeometry() {
     const dims = COMPONENT_DIMENSIONS.floor_panel;
-    return new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
+    return new THREE.BoxGeometry(dims.width, dims.depth, dims.height);
   }
 
   createMaterialForComponent(componentType) {
@@ -110,23 +109,54 @@ export class HouseToGLBConverter {
     // Improved positioning - center components on grid cells and ensure proper alignment
     const gridSize = 1.0; // Each grid cell is 1 unit
     const x = (component.x - 4.5) * gridSize; // Center the 10x10 grid around origin
-    const z = (component.y - 4.5) * gridSize; // Y in 2D becomes Z in 3D
+    const y = (component.y - 4.5) * gridSize; 
     const floorHeight = 2.6; // Height between floors
     
-    let y;
+    let z;
     if (component.type === 'floor_panel') {
       // Floor panels at the bottom of each floor
-      y = floorIndex * floorHeight - 1.25;
+      z = floorIndex * floorHeight;
     } else {
       // Walls, doors, windows stand on the floor
-      y = floorIndex * floorHeight + 1.25; // Half the wall height above floor
+      z = floorIndex * floorHeight + 1.25; // Half the wall height above floor
     }
     
     mesh.position.set(x, y, z);
     
-    // Apply rotation if needed - rotate around Y axis (vertical)
-    if (component.rotation) {
-      mesh.rotation.y = (component.rotation * Math.PI) / 180;
+    if (component.type === 'panel_4x8') {
+      // Apply rotation if not floor panel 
+      if (component.rotation === 0) {
+      mesh.position.set(x, y - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), z);
+      }
+      else if (component.rotation === 90) {
+      mesh.position.set(x - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, z);
+      mesh.rotation.z = Math.PI / 2;
+      }
+      else if (component.rotation === 180) {
+      mesh.position.set(x, y + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), z);
+      }
+      else if (component.rotation === 270) {
+      mesh.position.set(x + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, z);
+      mesh.rotation.z = Math.PI / 2;
+      }
+    }
+
+    else if (component.type === 'corner_panel') {
+      if (component.rotation === 0) {
+        mesh.position.set(x - 0.5, y - 0.5, z);
+      }
+      else if (component.rotation === 90) {
+        mesh.rotation.z = -Math.PI / 2;
+        mesh.position.set(x - 0.5, y + 0.5, z);
+      }
+      else if (component.rotation === 180) {
+        mesh.rotation.z = Math.PI;
+        mesh.position.set(x + 0.5, y + 0.5, z);
+      }
+      else if (component.rotation === 270) {
+        mesh.rotation.z = Math.PI / 2;
+        mesh.position.set(x + 0.5, y - 0.5, z);
+      }
     }
     
     // Add name for debugging
@@ -150,8 +180,10 @@ export class HouseToGLBConverter {
     
     // Process each floor
     house.floors.forEach((floor, floorIndex) => {
-      Object.values(floor.components).forEach(component => {
-        this.addComponentToScene(component, floorIndex);
+      Object.values(floor.components).forEach(componentArray => {
+        componentArray.forEach(component => {
+          this.addComponentToScene(component, floorIndex);
+        });
       });
     });
     

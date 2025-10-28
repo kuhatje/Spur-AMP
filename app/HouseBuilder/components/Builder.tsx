@@ -32,7 +32,7 @@ interface Floor {
   floorNumber: number;
   width: number;
   height: number;
-  components: { [key: string]: Component };
+  components: { [key: string]: Component[] };
 }
 
 interface House {
@@ -60,6 +60,7 @@ export default function Builder() {
   const [selectedComponentType, setSelectedComponentType] = useState<ComponentType>(ComponentType.PANEL_4X8);
   const [selectedRotation, setSelectedRotation] = useState(0);
   const [statusMessage, setStatusMessage] = useState("Ready");
+  const [showDebug, setShowDebug] = useState(false);
   
   // Drag selection state
   const [isDragging, setIsDragging] = useState(false);
@@ -82,38 +83,99 @@ export default function Builder() {
   // Helper functions
   const getCurrentFloor = (): Floor => house.floors[house.currentFloorIndex];
   
-  const addComponent = (x: number, y: number, type: ComponentType, rotation: number = 0) => {
+  const addComponent = (x: number, y: number, type: ComponentType, rotation: number = 0): boolean => {
     const key = `${x},${y}`;
     const newHouse = { ...house };
-    newHouse.floors[house.currentFloorIndex].components[key] = {
+    const floor = newHouse.floors[house.currentFloorIndex];
+    
+    // Initialize components array if it doesn't exist
+    if (!floor.components[key]) {
+      floor.components[key] = [];
+    }
+    
+    // Check if we can place this component type
+    const hasWallPanel = floor.components[key].some(c => c.type === ComponentType.PANEL_4X8 || c.type === ComponentType.CORNER_PANEL);
+    const hasFloorPanel = floor.components[key].some(c => c.type === ComponentType.FLOOR_PANEL);
+    const isWallPanel = type === ComponentType.PANEL_4X8 || type === ComponentType.CORNER_PANEL;
+    const isFloorPanel = type === ComponentType.FLOOR_PANEL;
+    
+    // Cannot place wall panels together
+    if (isWallPanel && hasWallPanel) {
+      return false;
+    }
+
+    if (isFloorPanel && hasFloorPanel) {
+      return false;
+    }
+    
+    // Add the component
+    floor.components[key].push({
       type,
       x,
       y,
       rotation
-    };
+    });
+    
     setHouse(newHouse);
+    return true;
   };
   
-  const removeComponent = (x: number, y: number) => {
+  const removeComponent = (x: number, y: number, type: ComponentType) => {
     const key = `${x},${y}`;
+    const floor = getCurrentFloor();
+    const components = floor.components[key];
+    
+    if (!components || components.length === 0) return;
+    
+    // Find the component of the specified type
     const newHouse = { ...house };
-    delete newHouse.floors[house.currentFloorIndex].components[key];
-    setHouse(newHouse);
+    const newComponents = newHouse.floors[house.currentFloorIndex].components[key];
+    
+    const index = newComponents.findIndex(c => c.type === type);
+    
+    if (index !== -1) {
+      newComponents.splice(index, 1);
+      setStatusMessage(`Removed ${type.replace('_', ' ')}`);
+      
+      // If no components left, delete the key
+      if (newComponents.length === 0) {
+        delete newHouse.floors[house.currentFloorIndex].components[key];
+      }
+      
+      setHouse(newHouse);
+    } else {
+      setStatusMessage("No matching component to remove");
+    }
   };
 
-  const rotateComponent = (x: number, y: number) => {
+  const rotateComponent = (x: number, y: number, type: ComponentType) => {
     const key = `${x},${y}`;
-    const component = getCurrentFloor().components[key];
-    if (component) {
-      const newHouse = { ...house };
-      const newRotation = (component.rotation + 90) % 360;
-      newHouse.floors[house.currentFloorIndex].components[key] = {
-        ...component,
-        rotation: newRotation
-      };
-      setHouse(newHouse);
-      setStatusMessage(`Rotated component to ${newRotation}°`);
+    const floor = getCurrentFloor();
+    const components = floor.components[key];
+    
+    if (!components || components.length === 0) return;
+    
+    // Find the index in the original array
+    const index = components.findIndex(c => c.type === type);
+    if (index === -1) {
+      setStatusMessage("No matching component to rotate");
+      return;
     }
+
+    const component = components[index];  // Get it once
+    const newRotation = (component.rotation + 90) % 360;
+
+    const newHouse = { ...house };
+    const newComponents = newHouse.floors[house.currentFloorIndex].components[key];
+
+    // Update using the same index
+    newComponents[index] = {
+      ...component,
+      rotation: newRotation
+    };
+
+    setHouse(newHouse);
+    setStatusMessage(`Rotated ${type.replace('_', ' ')} to ${newRotation}°`);
   };
   
   // Floor management
@@ -172,28 +234,38 @@ export default function Builder() {
     
     // Top and bottom edges - horizontal 4x8 panels (0° rotation)
     for (let x = 1; x < floor.width - 1; x++) {
-      components[`${x},0`] = { type: ComponentType.PANEL_4X8, x, y: 0, rotation: 0 };
-      components[`${x},${floor.height - 1}`] = { type: ComponentType.PANEL_4X8, x, y: floor.height - 1, rotation: 0 };
+      const key1 = `${x},0`;
+      if (!components[key1]) components[key1] = [];
+      components[key1] = [{ type: ComponentType.PANEL_4X8, x, y: 0, rotation: 0 }];
+      
+      const key2 = `${x},${floor.height - 1}`;
+      if (!components[key2]) components[key2] = [];
+      components[key2] = [{ type: ComponentType.PANEL_4X8, x, y: floor.height - 1, rotation: 0 }];
     }
     
     // Left and right edges - vertical 4x8 panels (90° rotation)
     for (let y = 1; y < floor.height - 1; y++) {
-      components[`0,${y}`] = { type: ComponentType.PANEL_4X8, x: 0, y, rotation: 90 };
-      components[`${floor.width - 1},${y}`] = { type: ComponentType.PANEL_4X8, x: floor.width - 1, y, rotation: 90 };
+      const key1 = `0,${y}`;
+      if (!components[key1]) components[key1] = [];
+      components[key1] = [{ type: ComponentType.PANEL_4X8, x: 0, y, rotation: 90 }];
+      
+      const key2 = `${floor.width - 1},${y}`;
+      if (!components[key2]) components[key2] = [];
+      components[key2] = [{ type: ComponentType.PANEL_4X8, x: floor.width - 1, y, rotation: 90 }];
     }
     
     // Corner panels with appropriate rotations for structural integrity
     // Top-left corner (0° rotation - L opens to bottom-right)
-    components[`0,0`] = { type: ComponentType.CORNER_PANEL, x: 0, y: 0, rotation: 0 };
+    components[`0,0`] = [{ type: ComponentType.CORNER_PANEL, x: 0, y: 0, rotation: 0 }];
     
     // Top-right corner (90° rotation - L opens to bottom-left)
-    components[`${floor.width - 1},0`] = { type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: 0, rotation: 90 };
+    components[`${floor.width - 1},0`] = [{ type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: 0, rotation: 90 }];
     
     // Bottom-right corner (180° rotation - L opens to top-left)
-    components[`${floor.width - 1},${floor.height - 1}`] = { type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: floor.height - 1, rotation: 180 };
+    components[`${floor.width - 1},${floor.height - 1}`] = [{ type: ComponentType.CORNER_PANEL, x: floor.width - 1, y: floor.height - 1, rotation: 180 }];
     
     // Bottom-left corner (270° rotation - L opens to top-right)
-    components[`0,${floor.height - 1}`] = { type: ComponentType.CORNER_PANEL, x: 0, y: floor.height - 1, rotation: 270 };
+    components[`0,${floor.height - 1}`] = [{ type: ComponentType.CORNER_PANEL, x: 0, y: floor.height - 1, rotation: 270 }];
     
     newHouse.floors[house.currentFloorIndex].components = components;
     setHouse(newHouse);
@@ -208,7 +280,19 @@ export default function Builder() {
     // Fill entire floor with floor panels
     for (let x = 0; x < floor.width; x++) {
       for (let y = 0; y < floor.height; y++) {
-        components[`${x},${y}`] = { type: ComponentType.FLOOR_PANEL, x, y, rotation: 0 };
+        const key = `${x},${y}`;
+        // Initialize array if doesn't exist
+        if (!components[key]) components[key] = [];
+        
+        // Add floor panel, replacing any existing floor panel at this position
+        const index = components[key].findIndex(c => c.type === ComponentType.FLOOR_PANEL);
+        const floorPanel = { type: ComponentType.FLOOR_PANEL, x, y, rotation: 0 };
+        
+        if (index !== -1) {
+          components[key][index] = floorPanel;
+        } else {
+          components[key].push(floorPanel);
+        }
       }
     }
     
@@ -262,16 +346,18 @@ export default function Builder() {
     }
     
     // Draw components
-    Object.values(floor.components).forEach(component => {
-      drawComponent(ctx, component, cellSize);
+    Object.values(floor.components).forEach(componentArray => {
+      componentArray.forEach(component => {
+        drawComponent(ctx, component, cellSize, floor.height);
+      });
     });
     
     // Draw drag selection rectangle
     if (isDragging && dragStart && dragEnd) {
       const startX = Math.min(dragStart.x, dragEnd.x) * cellSize;
-      const startY = Math.min(dragStart.y, dragEnd.y) * cellSize;
+      const startY = (floor.height - 1 - Math.max(dragStart.y, dragEnd.y)) * cellSize; // Flip Y
       const endX = Math.max(dragStart.x, dragEnd.x) * cellSize + cellSize;
-      const endY = Math.max(dragStart.y, dragEnd.y) * cellSize + cellSize;
+      const endY = (floor.height - 1 - Math.min(dragStart.y, dragEnd.y)) * cellSize + cellSize; // Flip Y
       
       ctx.strokeStyle = '#0474BC';
       ctx.setLineDash([5, 5]);
@@ -285,170 +371,131 @@ export default function Builder() {
     }
   }, [house, isDragging, dragStart, dragEnd]);
   
-  const drawComponent = (ctx: CanvasRenderingContext2D, component: Component, cellSize: number = gridSize) => {
+  const drawComponent = (ctx: CanvasRenderingContext2D, component: Component, cellSize: number = gridSize, floorHeight: number = 10) => {
     const x1 = component.x * cellSize;
-    const y1 = component.y * cellSize;
+    const y1 = (floorHeight - 1 - component.y) * cellSize; // Flip Y coordinate for drawing
     const x2 = x1 + cellSize;
     const y2 = y1 + cellSize;
     const centerX = x1 + cellSize / 2;
     const centerY = y1 + cellSize / 2;
     
     const color = COMPONENT_COLORS[component.type];
+    const panelThickness = cellSize * 0.15; // Thickness for edge panels
     
     // Save context for rotation
     ctx.save();
     
-    // Apply rotation around component center
-    if (component.rotation !== 0) {
+    if (component.type === ComponentType.PANEL_4X8) {
+      // Draw 4x8 panel only on one edge based on rotation
+      ctx.fillStyle = color;
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+      
+      // Draw panel on specific edge based on rotation
+      if (component.rotation === 0) {
+        // Bottom edge
+        ctx.fillRect(x1, y2 - panelThickness, cellSize, panelThickness);
+        ctx.strokeRect(x1, y2 - panelThickness, cellSize, panelThickness);
+      } else if (component.rotation === 90) {
+        // Left edge
+        ctx.fillRect(x1, y1, panelThickness, cellSize);
+        ctx.strokeRect(x1, y1, panelThickness, cellSize);
+      } else if (component.rotation === 180) {
+        // Top edge
+        ctx.fillRect(x1, y1, cellSize, panelThickness);
+        ctx.strokeRect(x1, y1, cellSize, panelThickness);
+      } else if (component.rotation === 270) {
+        // Right edge
+        ctx.fillRect(x2 - panelThickness, y1, panelThickness, cellSize);
+        ctx.strokeRect(x2 - panelThickness, y1, panelThickness, cellSize);
+      }
+      
+      // Draw structural grid pattern on the panel
+      ctx.strokeStyle = '#1F5F3F';
+      ctx.lineWidth = 1;
+      
+      if (component.rotation === 0 || component.rotation === 180) {
+        // Horizontal panel - draw vertical divisions
+        const gridWidth = cellSize / 4;
+        for (let i = 1; i < 4; i++) {
+          ctx.beginPath();
+          const yPos = component.rotation === 0 ? y2 - panelThickness : y1 + panelThickness;
+          ctx.moveTo(x1 + i * gridWidth, yPos);
+          ctx.lineTo(x1 + i * gridWidth, yPos);
+          ctx.stroke();
+        }
+      } else {
+        // Vertical panel - draw horizontal divisions
+        const gridHeight = cellSize / 8;
+        for (let i = 1; i < 8; i++) {
+          ctx.beginPath();
+          const xPos = component.rotation === 90 ? x1 + panelThickness : x2 - panelThickness;
+          ctx.moveTo(xPos, y1 + i * gridHeight);
+          ctx.lineTo(xPos, y1 + i * gridHeight);
+          ctx.stroke();
+        }
+      }
+      
+    } else if (component.type === ComponentType.CORNER_PANEL) {
+      // Save again for corner panel rotation
+      ctx.save();
+      
+      // Draw corner panel as L-shape only (no fill, just edges)
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 4;
+      
+      const thickness = panelThickness;
+      
+      // Apply rotation to draw L-shape on correct edges
       ctx.translate(centerX, centerY);
       ctx.rotate((component.rotation * Math.PI) / 180);
       ctx.translate(-centerX, -centerY);
-    }
-    
-    // Draw base rectangle
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 2;
-    ctx.fillRect(x1, y1, cellSize, cellSize);
-    ctx.strokeRect(x1, y1, cellSize, cellSize);
-    
-    // Draw blueshell panel-specific details with orientation indicators
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2;
-    
-    if (component.type === ComponentType.PANEL_4X8) {
-      // Draw 4x8 panel with structural grid pattern
-      ctx.strokeStyle = '#1F5F3F';
-      ctx.lineWidth = 2;
       
-      // Draw structural grid (4x8 panel divisions)
-      const gridX = cellSize / 4;
-      const gridY = cellSize / 8;
+      const xStart = centerX - cellSize/2;
+      const yStart = centerY - cellSize/2;
+      const yEnd = centerY + cellSize/2;
       
-      // Vertical lines
-      for (let i = 1; i < 4; i++) {
-        ctx.beginPath();
-        ctx.moveTo(x1 + i * gridX, y1);
-        ctx.lineTo(x1 + i * gridX, y2);
-        ctx.stroke();
-      }
+      // Draw filled L-shape using two separate fills
+      ctx.fillRect(xStart, yStart, thickness, cellSize); // Vertical edge
+      ctx.fillRect(xStart + thickness, yEnd - thickness, cellSize - thickness, thickness); // Horizontal edge
       
-      // Horizontal lines
-      for (let i = 1; i < 8; i++) {
-        ctx.beginPath();
-        ctx.moveTo(x1, y1 + i * gridY);
-        ctx.lineTo(x2, y1 + i * gridY);
-        ctx.stroke();
-      }
-      
-      // Add panel label
-      ctx.fillStyle = 'white';
-      ctx.font = `${Math.max(8, cellSize * 0.15)}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('4×8', centerX, centerY);
-      
-    } else if (component.type === ComponentType.CORNER_PANEL) {
-      // Draw corner panel with L-shape reinforcement
-      ctx.strokeStyle = '#1F5F3F';
-      ctx.lineWidth = 4;
-      
-      // Define L-shape relative to center, then let rotation handle orientation
-      const thickness = 3;
-      const halfCell = cellSize / 2;
-      
-      ctx.beginPath();
-      // Vertical part of L (left side of default orientation)
-      ctx.moveTo(centerX - halfCell + thickness, centerY - halfCell);
-      ctx.lineTo(centerX - halfCell + thickness, centerY + halfCell);
-      
-      // Horizontal part of L (bottom side of default orientation)  
-      ctx.moveTo(centerX - halfCell, centerY + halfCell - thickness);
-      ctx.lineTo(centerX + halfCell, centerY + halfCell - thickness);
-      ctx.stroke();
-      
-      // Add corner reinforcement indicator (diagonal brace)
-      ctx.strokeStyle = '#0F4F2F';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(centerX - halfCell, centerY + halfCell);
-      ctx.lineTo(centerX - halfCell + cellSize * 0.3, centerY + halfCell - cellSize * 0.3);
-      ctx.stroke();
+      // Restore rotation
+      ctx.restore();
       
     } else if (component.type === ComponentType.FLOOR_PANEL) {
-      // Draw floor panel with decking pattern
+      // Set 50% opacity for floor panels so they show through
+      ctx.globalAlpha = 0.5;
+      
+      // Draw floor panel fill
+      ctx.fillStyle = color;
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 1;
+      ctx.fillRect(x1, y1, cellSize, cellSize);
+      ctx.strokeRect(x1, y1, cellSize, cellSize);
+      
+      // Draw decking pattern with even spacing
+      ctx.globalAlpha = 0.7; // Slightly more opaque for lines
       ctx.strokeStyle = '#4F7F5F';
       ctx.lineWidth = 1;
       const padding = Math.max(2, cellSize * 0.1);
+      const availableHeight = cellSize - padding * 2;
+      const deckingSpacing = availableHeight / 6; // Divide into 6 equal sections
       
-      // Draw decking lines
-      const deckingSpacing = cellSize / 6;
-      for (let i = 0; i <= 6; i++) {
+      for (let i = 1; i <= 5; i++) {
+        const lineY = y1 + padding + i * deckingSpacing;
         ctx.beginPath();
-        ctx.moveTo(x1 + padding, y1 + padding + i * deckingSpacing);
-        ctx.lineTo(x2 - padding, y1 + padding + i * deckingSpacing);
+        ctx.moveTo(x1 + padding, lineY);
+        ctx.lineTo(x2 - padding, lineY);
         ctx.stroke();
       }
       
-      // Add floor label
-      ctx.fillStyle = 'white';
-      ctx.font = `${Math.max(6, cellSize * 0.12)}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('FLOOR', centerX, centerY);
+      // Reset opacity
+      ctx.globalAlpha = 1.0;
     }
     
-    // Restore context
+    // Restore context (resets rotation, opacity, etc.)
     ctx.restore();
-    
-    // Draw rotation indicator (always upright, outside the rotated context)
-    if (component.rotation !== 0 && component.type !== ComponentType.FLOOR_PANEL) {
-      ctx.save();
-      ctx.fillStyle = 'red';
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 1;
-      
-      // Draw rotation angle text
-      ctx.font = `${Math.max(8, cellSize * 0.2)}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      const textX = centerX;
-      const textY = y1 - 8;
-      
-      ctx.fillText(`${component.rotation}°`, textX, textY);
-      ctx.strokeText(`${component.rotation}°`, textX, textY);
-      
-      // Draw directional arrow
-      const arrowSize = cellSize * 0.15;
-      const arrowX = x2 + 5;
-      const arrowY = centerY;
-      
-      ctx.fillStyle = 'red';
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      
-      // Arrow pointing in rotation direction
-      const angle = (component.rotation * Math.PI) / 180;
-      const arrowTipX = arrowX + Math.cos(angle) * arrowSize;
-      const arrowTipY = arrowY + Math.sin(angle) * arrowSize;
-      
-      ctx.beginPath();
-      ctx.moveTo(arrowX, arrowY);
-      ctx.lineTo(arrowTipX, arrowTipY);
-      
-      // Arrow head
-      const headAngle1 = angle + Math.PI * 0.75;
-      const headAngle2 = angle - Math.PI * 0.75;
-      const headSize = arrowSize * 0.6;
-      
-      ctx.lineTo(arrowTipX + Math.cos(headAngle1) * headSize, arrowTipY + Math.sin(headAngle1) * headSize);
-      ctx.moveTo(arrowTipX, arrowTipY);
-      ctx.lineTo(arrowTipX + Math.cos(headAngle2) * headSize, arrowTipY + Math.sin(headAngle2) * headSize);
-      ctx.stroke();
-      
-      ctx.restore();
-    }
   };
   
   // 3D Preview - Isometric projection
@@ -554,14 +601,16 @@ export default function Builder() {
       const isCurrentFloor = floorIdx === house.currentFloorIndex;
       
       // Draw blueshell frame components
-      Object.values(floor.components).forEach(component => {
-        if (component.type === ComponentType.PANEL_4X8) {
-          drawIsoPanel4x8(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-        } else if (component.type === ComponentType.CORNER_PANEL) {
-          drawIsoCornerPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-        } else if (component.type === ComponentType.FLOOR_PANEL) {
-          drawIsoFloorPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-        }
+      Object.values(floor.components).forEach(componentArray => {
+        componentArray.forEach(component => {
+          if (component.type === ComponentType.PANEL_4X8) {
+            drawIsoPanel4x8(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+          } else if (component.type === ComponentType.CORNER_PANEL) {
+            drawIsoCornerPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+          } else if (component.type === ComponentType.FLOOR_PANEL) {
+            drawIsoFloorPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+          }
+        });
       });
     });
   }, [house]);
@@ -819,12 +868,12 @@ export default function Builder() {
     const cellSize = Math.min(canvas.width / floor.width, canvas.height / floor.height);
     
     const x = Math.floor(canvasX / cellSize);
-    const y = Math.floor(canvasY / cellSize);
+    const y = floor.height - 1 - Math.floor(canvasY / cellSize); // Flip Y coordinate
     
     if (x >= 0 && x < floor.width && y >= 0 && y < floor.height) {
       if (event.button === 1) { // Middle click - rotate existing component
         event.preventDefault();
-        rotateComponent(x, y);
+        rotateComponent(x, y, selectedComponentType);
       } else if (event.button === 0) { // Left click only - start drag to place components
         setIsDragging(true);
         setDragStart({x, y});
@@ -848,7 +897,7 @@ export default function Builder() {
     const cellSize = Math.min(canvas.width / floor.width, canvas.height / floor.height);
     
     const x = Math.floor(canvasX / cellSize);
-    const y = Math.floor(canvasY / cellSize);
+    const y = floor.height - 1 - Math.floor(canvasY / cellSize); // Flip Y coordinate
     
     if (x >= 0 && x < floor.width && y >= 0 && y < floor.height) {
       setDragEnd({x, y});
@@ -870,18 +919,19 @@ export default function Builder() {
     let placedCount = 0;
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        addComponent(x, y, selectedComponentType, selectedRotation);
-        placedCount++;
+        if (addComponent(x, y, selectedComponentType, selectedRotation)) {
+          placedCount++;
+        }
       }
     }
     
-    setStatusMessage(`Placed ${placedCount} ${selectedComponentType.replace('_', ' ')}(s)`);
+    if (placedCount > 0) {
+      setStatusMessage(`Placed ${placedCount} ${selectedComponentType.replace('_', ' ')}(s)`);
+    } else {
+      setStatusMessage("Could not place any components in selected area");
+    }
     setDragStart(null);
     setDragEnd(null);
-  };
-
-  const handleGridClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    // This is now handled by mouse down/up events
   };
   
   const handleGridRightClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -903,11 +953,10 @@ export default function Builder() {
     const cellSize = Math.min(canvas.width / floor.width, canvas.height / floor.height);
     
     const x = Math.floor(canvasX / cellSize);
-    const y = Math.floor(canvasY / cellSize);
+    const y = floor.height - 1 - Math.floor(canvasY / cellSize); // Flip Y coordinate
     
     if (x >= 0 && x < floor.width && y >= 0 && y < floor.height) {
-      removeComponent(x, y);
-      setStatusMessage(`Removed component at (${x}, ${y})`);
+      removeComponent(x, y, selectedComponentType);
     }
   };
 
@@ -950,16 +999,18 @@ export default function Builder() {
       stories: house.floors.map(floor => ({
         storyNumber: floor.floorNumber + 1,
         dimensions: { width: floor.width, height: floor.height },
-        panels: Object.values(floor.components).map(component => ({
-          type: component.type,
-          position: { x: component.x, y: component.y },
-          rotation: component.rotation,
-          panelSize: component.type === ComponentType.PANEL_4X8 ? "4x8" : 
-                     component.type === ComponentType.CORNER_PANEL ? "corner" : "floor"
-        }))
+        panels: Object.values(floor.components).flatMap(componentArray => 
+          componentArray.map(component => ({
+            type: component.type,
+            position: { x: component.x, y: component.y },
+            rotation: component.rotation,
+            panelSize: component.type === ComponentType.PANEL_4X8 ? "4x8" : 
+                       component.type === ComponentType.CORNER_PANEL ? "corner" : "floor"
+          }))
+        )
       })),
       totalPanels: house.floors.reduce((total, floor) => 
-        total + Object.keys(floor.components).length, 0
+        total + Object.values(floor.components).reduce((sum, componentArray) => sum + componentArray.length, 0), 0
       ),
       estimatedHeight: house.floors.length * 8 // 8 feet per story
     };
@@ -1209,6 +1260,21 @@ export default function Builder() {
               <p className="text-xs text-gray-600">
                 Generate & view 3D model below
               </p>
+            </div>
+
+            {/* Debug Panel */}
+            <div className="bg-white p-3 rounded-lg shadow">
+              <button 
+                onClick={() => setShowDebug(!showDebug)}
+                className="w-full font-bold text-lg mb-2 text-left"
+              >
+                🐛 Debug {showDebug ? '▼' : '▶'}
+              </button>
+              {showDebug && (
+                <div className="bg-gray-900 text-green-400 p-2 rounded text-xs overflow-auto max-h-96">
+                  <pre>{JSON.stringify(house, null, 2)}</pre>
+                </div>
+              )}
             </div>
           </div>
 
