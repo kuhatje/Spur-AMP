@@ -36,7 +36,7 @@ export class HouseToGLBConverter {
 
   createPanel4x8Geometry() {
     const dims = COMPONENT_DIMENSIONS.panel_4x8;
-    return new THREE.BoxGeometry(dims.width, dims.thickness, dims.height);
+    return new THREE.BoxGeometry(dims.width, dims.height, dims.thickness);
   }
 
   createCornerPanelGeometry() {
@@ -64,9 +64,9 @@ export class HouseToGLBConverter {
     
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     
-    
+    geometry.rotateX(-Math.PI / 2);
     // Center the geometry
-    geometry.translate(0, 0, -dims.height/2);
+    geometry.translate(0, -dims.height/2, 0);
     
     return geometry;
   }
@@ -74,7 +74,7 @@ export class HouseToGLBConverter {
 
   createFloorGeometry() {
     const dims = COMPONENT_DIMENSIONS.floor_panel;
-    return new THREE.BoxGeometry(dims.width, dims.depth, dims.height);
+    return new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
   }
 
   createMaterialForComponent(componentType) {
@@ -109,53 +109,53 @@ export class HouseToGLBConverter {
     // Improved positioning - center components on grid cells and ensure proper alignment
     const gridSize = 1.0; // Each grid cell is 1 unit
     const x = (component.x - 4.5) * gridSize; // Center the 10x10 grid around origin
-    const y = (component.y - 4.5) * gridSize; 
+    const negz = (component.y - 4.5) * gridSize; 
     const floorHeight = 3; // Height between floors
     
-    let z;
+    let y;
     if (component.type === 'floor_panel') {
       // Floor panels at the bottom of each floor
-      z = floorIndex * floorHeight;
+      y = floorIndex * floorHeight;
     } else {
       // Walls, doors, windows stand on the floor
-      z = floorIndex * floorHeight + 1; // Half the wall height above floor
+      y = floorIndex * floorHeight + 1; // Half the wall height above floor
     }
     
-    mesh.position.set(x, y, z);
+    mesh.position.set(x, y, -negz);
     
     if (component.type === 'panel_4x8') {
       // Apply rotation if not floor panel 
       if (component.rotation === 0) {
-      mesh.position.set(x, y - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), z);
+      mesh.position.set(x, y, -negz + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2));
       }
       else if (component.rotation === 90) {
-      mesh.position.set(x - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, z);
-      mesh.rotation.z = Math.PI / 2;
+      mesh.position.set(x - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, -negz);
+      mesh.rotation.y = Math.PI / 2;
       }
       else if (component.rotation === 180) {
-      mesh.position.set(x, y + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), z);
+      mesh.position.set(x, y, -negz - (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2));
       }
       else if (component.rotation === 270) {
-      mesh.position.set(x + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, z);
-      mesh.rotation.z = Math.PI / 2;
+      mesh.position.set(x + (0.5 - COMPONENT_DIMENSIONS.panel_4x8.thickness/2), y, -negz);
+      mesh.rotation.y = Math.PI / 2;
       }
     }
 
     else if (component.type === 'corner_panel') {
       if (component.rotation === 0) {
-        mesh.position.set(x - 0.5, y - 0.5, z);
+        mesh.position.set(x - 0.5, y, -negz + 0.5);
       }
       else if (component.rotation === 90) {
-        mesh.rotation.z = -Math.PI / 2;
-        mesh.position.set(x - 0.5, y + 0.5, z);
+        mesh.rotation.y = -Math.PI / 2;
+        mesh.position.set(x - 0.5, y, -negz - 0.5);
       }
       else if (component.rotation === 180) {
-        mesh.rotation.z = Math.PI;
-        mesh.position.set(x + 0.5, y + 0.5, z);
+        mesh.rotation.y = Math.PI;
+        mesh.position.set(x + 0.5, y, -negz - 0.5);
       }
       else if (component.rotation === 270) {
-        mesh.rotation.z = Math.PI / 2;
-        mesh.position.set(x + 0.5, y - 0.5, z);
+        mesh.rotation.y = Math.PI / 2;
+        mesh.position.set(x + 0.5, y, -negz + 0.5);
       }
     }
     
