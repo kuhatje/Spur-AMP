@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 
 const COMPONENT_DIMENSIONS = {
-  panel_4x8: { width: 1, thickness: 0.1, height: 2.5},
-  corner_panel: { width: 1, depth: 1, thickness: 0.1, height: 2.5},
+  panel_4x8: { width: 1, thickness: 0.1, height: 2},
+  corner_panel: { width: 1, depth: 1, thickness: 0.1, height: 2},
   floor_panel: { width: 1, depth: 1, height: 0.15 },
 };
 
@@ -110,7 +110,7 @@ export class HouseToGLBConverter {
     const gridSize = 1.0; // Each grid cell is 1 unit
     const x = (component.x - 4.5) * gridSize; // Center the 10x10 grid around origin
     const y = (component.y - 4.5) * gridSize; 
-    const floorHeight = 2.6; // Height between floors
+    const floorHeight = 3; // Height between floors
     
     let z;
     if (component.type === 'floor_panel') {
@@ -118,7 +118,7 @@ export class HouseToGLBConverter {
       z = floorIndex * floorHeight;
     } else {
       // Walls, doors, windows stand on the floor
-      z = floorIndex * floorHeight + 1.25; // Half the wall height above floor
+      z = floorIndex * floorHeight + 1; // Half the wall height above floor
     }
     
     mesh.position.set(x, y, z);
