@@ -1268,7 +1268,7 @@ export default function Builder() {
                 onClick={() => setShowDebug(!showDebug)}
                 className="w-full font-bold text-lg mb-2 text-left"
               >
-                🐛 Debug {showDebug ? '▼' : '▶'}
+               Debug {showDebug ? '▼' : '▶'}
               </button>
               {showDebug && (
                 <div className="bg-gray-900 text-green-400 p-2 rounded text-xs overflow-auto max-h-96">

@@ -44,7 +44,7 @@ export default function Model_Preview({ loc, customScene = null }) {
         speed={1.5}
         global
         zoom={0.7}
-        polar={[-0.1, Math.PI / 4]}
+        polar={[-0.1, Math.PI / 3]}
         rotation={[0, 0, 0]}
         config={{ mass: 2, tension: 500 }}
       >
