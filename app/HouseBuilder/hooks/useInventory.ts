@@ -135,11 +135,15 @@ export const useInventory = () => {
     };
 
     // Count components across all floors/stories
+    // floor.components is an object where each key (e.g., "0,0") maps to an array of components
     house.floors.forEach((floor: any) => {
-      Object.values(floor.components).forEach((component: any) => {
-        if (component.type in newInventory) {
-          newInventory[component.type as keyof PanelInventory]++;
-        }
+      Object.values(floor.components).forEach((componentArray: any) => {
+        // componentArray is an array of components at a given position
+        componentArray.forEach((component: any) => {
+          if (component.type in newInventory) {
+            newInventory[component.type as keyof PanelInventory]++;
+          }
+        });
       });
     });
 
