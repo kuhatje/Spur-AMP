@@ -4,14 +4,8 @@ import { useIsVisible } from "../../JS_Scripts/Visible";
 import Model_Preview from "../../JS_Scripts/Model";
 import { HouseToGLBConverter } from "../../JS_Scripts/HouseToGLB";
 import { useInventoryContext } from "../context/InventoryContext";
-
-// Blueshell frame component types - simplified for structural design
-enum ComponentType {
-  PANEL_4X8 = "panel_4x8",
-  CORNER_PANEL = "corner_panel",
-  FLOOR_PANEL = "floor_panel",
-  EMPTY = "empty"
-}
+import { ComponentType, Component, Floor, House } from "../types";
+import { generateRevitPayload } from "../utils/revitPayload";
 
 // Component colors for blueshell visualization
 const COMPONENT_COLORS = {
@@ -20,25 +14,6 @@ const COMPONENT_COLORS = {
   [ComponentType.FLOOR_PANEL]: "#8FBC8F",    // Dark Sea Green - floor panels
   [ComponentType.EMPTY]: "#F0F0F0"
 };
-
-interface Component {
-  type: ComponentType;
-  x: number;
-  y: number;
-  rotation: number;
-}
-
-interface Floor {
-  floorNumber: number;
-  width: number;
-  height: number;
-  components: { [key: string]: Component[] };
-}
-
-interface House {
-  floors: Floor[];
-  currentFloorIndex: number;
-}
 
 export default function Builder() {
   const ref_Builder = useRef(null);
@@ -1025,6 +1000,24 @@ export default function Builder() {
     setStatusMessage("Blueshell frame data exported");
   };
 
+  const exportRevitDesignData = () => {
+    const payload = generateRevitPayload(house, {
+      cellSizeFeet: 8,
+      storyHeightFeet: 10
+    });
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "daylun-revit-layout.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage("Revit layout data exported");
+  };
+
   const generateCustomModel = async () => {
     try {
       setStatusMessage("Generating 3D model...");
@@ -1236,6 +1229,15 @@ export default function Builder() {
                 >
                   Export Frame Data
                 </button>
+                <button
+                  onClick={exportRevitDesignData}
+                  className="w-full bg-slate-700 text-white px-2 py-1 rounded hover:bg-slate-800 text-xs"
+                >
+                  Export Revit Layout
+                </button>
+                <p className="text-[11px] text-gray-500">
+                  Downloads a JSON layout for the Revit automation script.
+                </p>
               </div>
             </div>
 
