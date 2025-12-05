@@ -15,6 +15,173 @@ const COMPONENT_COLORS = {
   [ComponentType.EMPTY]: "#F0F0F0"
 };
 
+interface IsoConfig {
+  scale: number;
+  heightScale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface PrismDimensions {
+  x: number;
+  y: number;
+  z: number;
+  width: number;
+  depth: number;
+  height: number;
+}
+
+interface PlateOptions {
+  x: number;
+  y: number;
+  width: number;
+  depth: number;
+  elevation: number;
+  fill: string;
+  stroke?: string;
+  opacity?: number;
+  dashed?: boolean;
+}
+
+const ISO_X = Math.cos(Math.PI / 6);
+const ISO_Y = Math.sin(Math.PI / 6);
+
+const clampValue = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const shadeColor = (hex: string, percent: number) => {
+  const normalized = hex.replace("#", "");
+  const num = parseInt(normalized, 16);
+  const amt = Math.round((percent / 100) * 255);
+
+  const r = clampValue((num >> 16) + amt, 0, 255);
+  const g = clampValue(((num >> 8) & 0xff) + amt, 0, 255);
+  const b = clampValue((num & 0xff) + amt, 0, 255);
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
+const isoProjectPoint = (
+  x: number,
+  y: number,
+  z: number,
+  config: IsoConfig
+): [number, number] => {
+  const screenX = config.offsetX + (x - y) * ISO_X * config.scale;
+  const screenY =
+    config.offsetY - (x + y) * ISO_Y * config.scale - z * config.heightScale;
+  return [screenX, screenY];
+};
+
+const drawIsoFace = (
+  ctx: CanvasRenderingContext2D,
+  points: Array<[number, number]>
+) => {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i][0], points[i][1]);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+};
+
+const drawIsoPlate = (
+  ctx: CanvasRenderingContext2D,
+  options: PlateOptions,
+  config: IsoConfig
+) => {
+  const { x, y, width, depth, elevation, fill, stroke, opacity, dashed } =
+    options;
+  const points = [
+    isoProjectPoint(x, y, elevation, config),
+    isoProjectPoint(x + width, y, elevation, config),
+    isoProjectPoint(x + width, y + depth, elevation, config),
+    isoProjectPoint(x, y + depth, elevation, config),
+  ];
+
+  ctx.save();
+  ctx.globalAlpha = opacity ?? 1;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke ?? "#1F2933";
+  ctx.lineWidth = 1.2;
+  if (dashed) {
+    ctx.setLineDash([6, 4]);
+  }
+  drawIsoFace(ctx, points);
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+const drawIsoPrism = (
+  ctx: CanvasRenderingContext2D,
+  prism: PrismDimensions,
+  config: IsoConfig,
+  baseColor: string
+) => {
+  const { x, y, z, width, depth, height } = prism;
+  const p000 = isoProjectPoint(x, y, z, config);
+  const p100 = isoProjectPoint(x + width, y, z, config);
+  const p010 = isoProjectPoint(x, y + depth, z, config);
+  const p110 = isoProjectPoint(x + width, y + depth, z, config);
+  const p001 = isoProjectPoint(x, y, z + height, config);
+  const p101 = isoProjectPoint(x + width, y, z + height, config);
+  const p011 = isoProjectPoint(x, y + depth, z + height, config);
+  const p111 = isoProjectPoint(x + width, y + depth, z + height, config);
+
+  const sideDark = shadeColor(baseColor, -25);
+  const sideLight = shadeColor(baseColor, -12);
+  const topColor = shadeColor(baseColor, 18);
+
+  ctx.strokeStyle = "#1F2933";
+  ctx.lineWidth = 1;
+
+  // Left/Back face
+  ctx.fillStyle = sideDark;
+  drawIsoFace(ctx, [p000, p010, p011, p001]);
+
+  // Right face
+  ctx.fillStyle = sideLight;
+  drawIsoFace(ctx, [p000, p100, p101, p001]);
+
+  // Top face
+  ctx.fillStyle = topColor;
+  drawIsoFace(ctx, [p001, p101, p111, p011]);
+};
+
+const getCornerSegments = (
+  component: Component,
+  wallThickness: number
+): Array<{ x: number; y: number; width: number; depth: number }> => {
+  const { x, y } = component;
+  const rotation = ((component.rotation ?? 0) + 360) % 360;
+
+  switch (rotation) {
+    case 0:
+      return [
+        { x, y, width: 1, depth: wallThickness }, // bottom leg
+        { x, y, width: wallThickness, depth: 1 }, // left leg
+      ];
+    case 90:
+      return [
+        { x, y, width: 1, depth: wallThickness }, // bottom leg
+        { x: x + 1 - wallThickness, y, width: wallThickness, depth: 1 }, // right leg
+      ];
+    case 180:
+      return [
+        { x, y: y + 1 - wallThickness, width: 1, depth: wallThickness }, // top leg
+        { x: x + 1 - wallThickness, y, width: wallThickness, depth: 1 }, // right leg
+      ];
+    case 270:
+    default:
+      return [
+        { x, y: y + 1 - wallThickness, width: 1, depth: wallThickness }, // top leg
+        { x, y, width: wallThickness, depth: 1 }, // left leg
+      ];
+  }
+};
+
 export default function Builder() {
   const ref_Builder = useRef(null);
   const is_visible_Builder = useIsVisible(ref_Builder);
@@ -53,7 +220,6 @@ export default function Builder() {
   };
   
   const gridSize = 40;
-  const panelSize = 8;
   
   // Helper functions
   const getCurrentFloor = (): Floor => house.floors[house.currentFloorIndex];
@@ -477,359 +643,185 @@ export default function Builder() {
   const update3DPreview = useCallback(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
+
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    
-    // Set canvas size based on device
+
     const isMobile = window.innerWidth < 768;
-    const canvasWidth = isMobile ? 280 : 380;
-    const canvasHeight = isMobile ? 400 : 600;
+    const canvasWidth = isMobile ? 300 : 420;
+    const canvasHeight = isMobile ? 320 : 560;
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
-    
-    // Clear canvas
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    const scale = isMobile ? 15 : 20;
-    const offsetX = isMobile ? 140 : 190;
-    const offsetY = isMobile ? 300 : 400;
-    const floorHeight = 3;
-    
-    // First, draw all floor planes (transparent outlines to show floor levels)
-    house.floors.forEach((floor, floorIdx) => {
-      const zOffset = floorIdx * floorHeight * scale;
-      const points = isoProjectRect(0, 0, floor.width, floor.height, zOffset, scale, offsetX, offsetY);
-      
-      if (floorIdx === 0) {
-        // Ground floor - solid fill
-        ctx.fillStyle = '#C0C0C0';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(points[0], points[1]);
-        for (let i = 2; i < points.length; i += 2) {
-          ctx.lineTo(points[i], points[i + 1]);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      } else {
-        // Upper floors - much more visible cutting planes
-        const isCurrentFloor = floorIdx === house.currentFloorIndex;
-        
-        if (isCurrentFloor) {
-          // Current floor - bright blue cutting plane
-          ctx.fillStyle = 'rgba(4, 116, 188, 0.4)';
-          ctx.strokeStyle = '#0474BC';
-          ctx.lineWidth = 3;
-        } else {
-          // Other floors - visible gray cutting plane
-          ctx.fillStyle = 'rgba(160, 160, 160, 0.6)';
-          ctx.strokeStyle = '#606060';
-          ctx.lineWidth = 2;
-        }
-        
-        ctx.setLineDash([8, 4]); // More prominent dashes
-        ctx.beginPath();
-        ctx.moveTo(points[0], points[1]);
-        for (let i = 2; i < points.length; i += 2) {
-          ctx.lineTo(points[i], points[i + 1]);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.setLineDash([]); // Reset to solid lines
-        
-        // Add diagonal grid pattern for better visibility
-        ctx.strokeStyle = isCurrentFloor ? '#0474BC' : '#808080';
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.3;
-        
-        // Draw diagonal lines across the floor
-        const gridSpacing = scale * 2;
-        for (let i = -floor.width; i <= floor.width + floor.height; i++) {
-          const x1 = i * gridSpacing;
-          const y1 = 0;
-          const x2 = x1 - floor.height * gridSpacing;
-          const y2 = floor.height * gridSpacing;
-          
-          const p1 = isoProject(x1 / scale, y1 / scale, zOffset, scale, offsetX, offsetY);
-          const p2 = isoProject(x2 / scale, y2 / scale, zOffset, scale, offsetX, offsetY);
-          
-          // Only draw lines within the floor bounds
-          if (x1 >= 0 && x1 <= floor.width * scale && x2 >= 0 && x2 <= floor.width * scale) {
-            ctx.beginPath();
-            ctx.moveTo(p1[0], p1[1]);
-            ctx.lineTo(p2[0], p2[1]);
-            ctx.stroke();
-          }
-        }
-        
-        ctx.globalAlpha = 1.0; // Reset alpha
-      }
+
+    const maxWidth = house.floors.reduce(
+      (acc, floor) => Math.max(acc, floor.width),
+      0
+    );
+    const maxDepth = house.floors.reduce(
+      (acc, floor) => Math.max(acc, floor.height),
+      0
+    );
+
+    const dimensionForScale = Math.max(maxWidth + maxDepth, 12);
+    const baseScale =
+      Math.min(canvasWidth, canvasHeight) / (dimensionForScale * 1.6);
+    const isoConfig: IsoConfig = {
+      scale: Math.max(baseScale, isMobile ? 16 : 20),
+      heightScale: Math.max(baseScale * 1.35, 18),
+      offsetX: canvasWidth / 2,
+      offsetY: canvasHeight * 0.82,
+    };
+
+    const storyHeight = 1.4;
+    const floorThickness = 0.12;
+    const wallThickness = 0.18;
+
+    // Ground plate with slight padding for framing reference
+    const padding = 1.25;
+    drawIsoPlate(
+      ctx,
+      {
+        x: -padding,
+        y: -padding,
+        width: maxWidth + padding * 2,
+        depth: maxDepth + padding * 2,
+        elevation: 0,
+        fill: "#E2E6EA",
+        stroke: "#B0B7BF",
+        opacity: 0.95,
+      },
+      isoConfig
+    );
+
+    house.floors.forEach((floor, idx) => {
+      const elevation = idx * storyHeight;
+      const isCurrent = idx === house.currentFloorIndex;
+      drawIsoPlate(
+        ctx,
+        {
+          x: 0,
+          y: 0,
+          width: floor.width,
+          depth: floor.height,
+          elevation,
+          fill: isCurrent
+            ? "rgba(4, 116, 188, 0.3)"
+            : "rgba(148, 163, 184, 0.3)",
+          stroke: isCurrent ? "#0474BC" : "#94A3B8",
+          dashed: !isCurrent,
+        },
+        isoConfig
+      );
     });
 
-    // Then draw all the components on each floor
-    house.floors.forEach((floor, floorIdx) => {
-      const zOffset = floorIdx * floorHeight * scale;
-      const isCurrentFloor = floorIdx === house.currentFloorIndex;
-      
-      // Draw blueshell frame components
-      Object.values(floor.components).forEach(componentArray => {
-        componentArray.forEach(component => {
-          if (component.type === ComponentType.PANEL_4X8) {
-            drawIsoPanel4x8(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-          } else if (component.type === ComponentType.CORNER_PANEL) {
-            drawIsoCornerPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
-          } else if (component.type === ComponentType.FLOOR_PANEL) {
-            drawIsoFloorPanel(ctx, component, zOffset, scale, offsetX, offsetY, isCurrentFloor);
+    const componentEntries: Array<{ component: Component; storyIdx: number }> =
+      [];
+
+    house.floors.forEach((floor, storyIdx) => {
+      Object.values(floor.components).forEach((componentArray) => {
+        componentArray.forEach((component) => {
+          if (component.type !== ComponentType.EMPTY) {
+            componentEntries.push({ component, storyIdx });
           }
         });
       });
     });
+
+    componentEntries.sort((a, b) => {
+      const depthA =
+        a.storyIdx * 4 + (a.component.x + a.component.y);
+      const depthB =
+        b.storyIdx * 4 + (b.component.x + b.component.y);
+      return depthB - depthA;
+    });
+
+    componentEntries.forEach(({ component, storyIdx }) => {
+      const baseZ = storyIdx * storyHeight;
+      const color = COMPONENT_COLORS[component.type];
+      if (!color) return;
+
+      if (component.type === ComponentType.FLOOR_PANEL) {
+        drawIsoPrism(
+          ctx,
+          {
+            x: component.x,
+            y: component.y,
+            z: baseZ,
+            width: 1,
+            depth: 1,
+            height: floorThickness,
+          },
+          isoConfig,
+          color
+        );
+        return;
+      }
+
+      const wallHeight = storyHeight - floorThickness * 1.15;
+      const rotation = ((component.rotation ?? 0) + 360) % 360;
+
+      if (component.type === ComponentType.PANEL_4X8) {
+        let prism: PrismDimensions;
+        if (rotation === 0) {
+          prism = {
+            x: component.x,
+            y: component.y,
+            z: baseZ + floorThickness,
+            width: 1,
+            depth: wallThickness,
+            height: wallHeight,
+          };
+        } else if (rotation === 180) {
+          prism = {
+            x: component.x,
+            y: component.y + 1 - wallThickness,
+            z: baseZ + floorThickness,
+            width: 1,
+            depth: wallThickness,
+            height: wallHeight,
+          };
+        } else if (rotation === 90) {
+          prism = {
+            x: component.x,
+            y: component.y,
+            z: baseZ + floorThickness,
+            width: wallThickness,
+            depth: 1,
+            height: wallHeight,
+          };
+        } else {
+          prism = {
+            x: component.x + 1 - wallThickness,
+            y: component.y,
+            z: baseZ + floorThickness,
+            width: wallThickness,
+            depth: 1,
+            height: wallHeight,
+          };
+        }
+        drawIsoPrism(ctx, prism, isoConfig, color);
+      } else if (component.type === ComponentType.CORNER_PANEL) {
+        const segments = getCornerSegments(component, wallThickness);
+        segments.forEach((segment) => {
+          drawIsoPrism(
+            ctx,
+            {
+              x: segment.x,
+              y: segment.y,
+              z: baseZ + floorThickness,
+              width: segment.width,
+              depth: segment.depth,
+              height: wallHeight,
+            },
+            isoConfig,
+            color
+          );
+        });
+      }
+    });
   }, [house]);
-  
-  // Isometric projection helpers
-  const isoProject = (x: number, y: number, z: number, scale: number, offsetX: number, offsetY: number): [number, number] => {
-    const isoX = 0.866;
-    const isoY = 0.5;
-    const screenX = offsetX + (x - y) * isoX * scale;
-    const screenY = offsetY - (x + y) * isoY * scale - z;
-    return [screenX, screenY];
-  };
-  
-  const isoProjectRect = (x: number, y: number, width: number, height: number, z: number, scale: number, offsetX: number, offsetY: number): number[] => {
-    const p1 = isoProject(x, y, z, scale, offsetX, offsetY);
-    const p2 = isoProject(x + width, y, z, scale, offsetX, offsetY);
-    const p3 = isoProject(x + width, y + height, z, scale, offsetX, offsetY);
-    const p4 = isoProject(x, y + height, z, scale, offsetX, offsetY);
-    return [p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], p4[0], p4[1]];
-  };
-  
-  // 3D Isometric drawing functions for blueshell panels
-  const drawIsoPanel4x8 = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const panelHeight = 3 * scale;
-    const color = isCurrentFloor ? '#2E8B57' : '#5F9F7F';
-    
-    const p1 = isoProject(component.x, component.y, zBase, scale, offsetX, offsetY);
-    const p2 = isoProject(component.x + 1, component.y, zBase, scale, offsetX, offsetY);
-    const p3 = isoProject(component.x + 1, component.y, zBase + panelHeight, scale, offsetX, offsetY);
-    const p4 = isoProject(component.x, component.y, zBase + panelHeight, scale, offsetX, offsetY);
-    const p5 = isoProject(component.x + 1, component.y + 1, zBase, scale, offsetX, offsetY);
-    const p6 = isoProject(component.x + 1, component.y + 1, zBase + panelHeight, scale, offsetX, offsetY);
-    const p7 = isoProject(component.x, component.y + 1, zBase + panelHeight, scale, offsetX, offsetY);
-    
-    // Front face
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p1[0], p1[1]);
-    ctx.lineTo(p2[0], p2[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p4[0], p4[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Right face
-    ctx.fillStyle = '#1F5F3F';
-    ctx.beginPath();
-    ctx.moveTo(p2[0], p2[1]);
-    ctx.lineTo(p5[0], p5[1]);
-    ctx.lineTo(p6[0], p6[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Top face
-    ctx.fillStyle = '#4F8F6F';
-    ctx.beginPath();
-    ctx.moveTo(p4[0], p4[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p6[0], p6[1]);
-    ctx.lineTo(p7[0], p7[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Add structural grid lines on front face
-    ctx.strokeStyle = '#1F5F3F';
-    ctx.lineWidth = 0.5;
-    const gridLines = 4;
-    for (let i = 1; i < gridLines; i++) {
-      const ratio = i / gridLines;
-      const px = p1[0] + (p2[0] - p1[0]) * ratio;
-      const py = p1[1] + (p2[1] - p1[1]) * ratio;
-      const px2 = p4[0] + (p3[0] - p4[0]) * ratio;
-      const py2 = p4[1] + (p3[1] - p4[1]) * ratio;
-      
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px2, py2);
-      ctx.stroke();
-    }
-  };
-  
-  const drawIsoCornerPanel = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const panelHeight = 3 * scale;
-    const color = isCurrentFloor ? '#228B22' : '#5F9F5F';
-    const thickness = 0.25; // Panel thickness
-    
-    // Define L-shape vertices based on rotation (unified shape approach)
-    let lVertices: Array<{x: number, y: number}> = [];
-    
-    switch (component.rotation) {
-      case 0: // L opens to bottom-right ⌞
-        lVertices = [
-          {x: 0, y: 0},                    // Top-left outer
-          {x: thickness, y: 0},            // Top-left inner
-          {x: thickness, y: 1-thickness},  // Inner corner
-          {x: 1, y: 1-thickness},          // Bottom inner
-          {x: 1, y: 1},                    // Bottom-right outer
-          {x: 0, y: 1}                     // Bottom-left outer
-        ];
-        break;
-      case 90: // L opens to bottom-left ⌟
-        lVertices = [
-          {x: 0, y: 0},                    // Top-left outer
-          {x: 1, y: 0},                    // Top-right outer
-          {x: 1, y: 1},                    // Bottom-right outer
-          {x: 0, y: 1},                    // Bottom-left outer
-          {x: 0, y: 1-thickness},          // Left inner
-          {x: 1-thickness, y: 1-thickness} // Inner corner
-        ];
-        break;
-      case 180: // L opens to top-left ⌜
-        lVertices = [
-          {x: 0, y: 0},                    // Top-left outer
-          {x: 1, y: 0},                    // Top-right outer
-          {x: 1, y: 1},                    // Bottom-right outer
-          {x: 1-thickness, y: 1},          // Bottom inner
-          {x: 1-thickness, y: thickness},  // Inner corner
-          {x: 0, y: thickness}             // Left inner
-        ];
-        break;
-      case 270: // L opens to top-right ⌝
-        lVertices = [
-          {x: thickness, y: 0},            // Top inner
-          {x: 1, y: 0},                    // Top-right outer
-          {x: 1, y: 1},                    // Bottom-right outer
-          {x: 0, y: 1},                    // Bottom-left outer
-          {x: 0, y: 0},                    // Top-left outer
-          {x: thickness, y: thickness}     // Inner corner
-        ];
-        break;
-      default: // Fallback to 0 degree
-        lVertices = [
-          {x: 0, y: 0}, {x: thickness, y: 0}, {x: thickness, y: 1-thickness},
-          {x: 1, y: 1-thickness}, {x: 1, y: 1}, {x: 0, y: 1}
-        ];
-    }
-    
-    // Convert to world coordinates
-    const worldVertices = lVertices.map(v => ({
-      x: component.x + v.x,
-      y: component.y + v.y
-    }));
-    
-    // Project all vertices to isometric space
-    const bottomPoints = worldVertices.map(v => isoProject(v.x, v.y, zBase, scale, offsetX, offsetY));
-    const topPoints = worldVertices.map(v => isoProject(v.x, v.y, zBase + panelHeight, scale, offsetX, offsetY));
-    
-    // Draw the unified L-shaped corner panel
-    
-    // Bottom face (foundation)
-    ctx.fillStyle = '#1F5F1F';
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(bottomPoints[0][0], bottomPoints[0][1]);
-    for (let i = 1; i < bottomPoints.length; i++) {
-      ctx.lineTo(bottomPoints[i][0], bottomPoints[i][1]);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Top face
-    ctx.fillStyle = '#4F8F4F';
-    ctx.beginPath();
-    ctx.moveTo(topPoints[0][0], topPoints[0][1]);
-    for (let i = 1; i < topPoints.length; i++) {
-      ctx.lineTo(topPoints[i][0], topPoints[i][1]);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Side faces - draw each edge as a separate face
-    ctx.fillStyle = color;
-    for (let i = 0; i < worldVertices.length; i++) {
-      const next = (i + 1) % worldVertices.length;
-      
-      // Only draw visible faces (avoid internal faces)
-      const edge = {
-        x: worldVertices[next].x - worldVertices[i].x,
-        y: worldVertices[next].y - worldVertices[i].y
-      };
-      
-      // Skip very small edges (internal connections)
-      if (Math.abs(edge.x) < 0.01 && Math.abs(edge.y) < 0.01) continue;
-      
-      // Draw side face between bottom[i] -> bottom[next] -> top[next] -> top[i]
-      ctx.beginPath();
-      ctx.moveTo(bottomPoints[i][0], bottomPoints[i][1]);
-      ctx.lineTo(bottomPoints[next][0], bottomPoints[next][1]);
-      ctx.lineTo(topPoints[next][0], topPoints[next][1]);
-      ctx.lineTo(topPoints[i][0], topPoints[i][1]);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-  };
-  
-  const drawIsoFloorPanel = (ctx: CanvasRenderingContext2D, component: Component, zBase: number, scale: number, offsetX: number, offsetY: number, isCurrentFloor: boolean) => {
-    const floorThickness = 0.3 * scale;
-    const color = isCurrentFloor ? '#8FBC8F' : '#A8CCA8';
-    
-    const p1 = isoProject(component.x, component.y, zBase + floorThickness, scale, offsetX, offsetY);
-    const p2 = isoProject(component.x + 1, component.y, zBase + floorThickness, scale, offsetX, offsetY);
-    const p3 = isoProject(component.x + 1, component.y + 1, zBase + floorThickness, scale, offsetX, offsetY);
-    const p4 = isoProject(component.x, component.y + 1, zBase + floorThickness, scale, offsetX, offsetY);
-    
-    ctx.fillStyle = color;
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p1[0], p1[1]);
-    ctx.lineTo(p2[0], p2[1]);
-    ctx.lineTo(p3[0], p3[1]);
-    ctx.lineTo(p4[0], p4[1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Decking pattern
-    ctx.strokeStyle = '#4F7F5F';
-    ctx.lineWidth = 0.5;
-    const deckingLines = 6;
-    for (let i = 1; i < deckingLines; i++) {
-      const ratio = i / deckingLines;
-      const px1 = p1[0] + (p2[0] - p1[0]) * ratio;
-      const py1 = p1[1] + (p2[1] - p1[1]) * ratio;
-      const px2 = p4[0] + (p3[0] - p4[0]) * ratio;
-      const py2 = p4[1] + (p3[1] - p4[1]) * ratio;
-      
-      ctx.beginPath();
-      ctx.moveTo(px1, py1);
-      ctx.lineTo(px2, py2);
-      ctx.stroke();
-    }
-  };
-  
   // Mouse event handlers
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = gridCanvasRef.current;
